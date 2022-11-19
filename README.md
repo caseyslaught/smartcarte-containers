@@ -1,10 +1,12 @@
-# Smart Carte | Lambda Containers
+# Smart Carte | Containers and Notebooks
 
-### These containers are run on AWS Lambda.
+### The containers are run on AWS Lambda.
 
 ### Each folder in _containers_ corresponds to a Lambda function.
 
 ### Each Lambda function is run on a custom Docker container.
+
+### Jupyter Notebooks run on a Docker container locally.
 
 ## Set up
 
@@ -12,10 +14,15 @@
 
 `cd containers/monolith'`
 
-### 2. Create a Python virtual environment?
+### 2. Build the Docker containers
 
-`py -m venv venv`
+- #### Jupyter
 
-### 3. Build the Docker containers
+  `docker build ./notebooks/ -t sc_jupyter:latest`
 
-`docker build ./containers/monolith/ --build-arg VERSION=2.1.0 --build-arg PYVERSION=3.9.13 -t sc_monolith:latest`
+- #### Monolith
+  `docker build ./containers/monolith/ -t sc_monolith:latest`
+
+### 3. Start Jupyter Notebooks container
+
+`docker run ... 0.0.0.0:8888 ???`

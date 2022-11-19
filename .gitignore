@@ -1,6 +1,8 @@
-# Stuff I added
+# Custom stuff
 .vscode/
 scratch.txt
+containers/*/common/
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
