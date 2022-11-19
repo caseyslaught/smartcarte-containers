@@ -2,6 +2,8 @@
 .vscode/
 scratch.txt
 containers/*/common/
+*collection.json
+
 
 
 # Byte-compiled / optimized / DLL files
