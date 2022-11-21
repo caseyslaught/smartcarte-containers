@@ -3,6 +3,8 @@
 scratch.txt
 containers/*/common/
 *collection.json
+*.tif
+*.tiff
 
 
 
