@@ -3,5 +3,7 @@ import xarray as xr
 
 
 def handle(event, context):
-    print("hello world!")
-    
+    print("### EVENT???")
+    print(event)
+    print("### CONTEXT")
+    print(context)

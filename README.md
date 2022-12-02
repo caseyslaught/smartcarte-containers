@@ -26,3 +26,19 @@
 ### 3. Start Jupyter Notebooks container
 
 `docker run ... 0.0.0.0:8888 ???`
+
+## Debugging
+
+`docker run -p 9000:8080 -v %cd%/src:/var/task/src sc_monolith:latest`
+
+Invoke HTTP request with Postman (Smart Carte/containers/monolith) or...
+
+`curl -XPOST "http://localhost:9000/2015-03-31/functions/function/invocations" -d {}`
+
+Stop container and restart run _docker run..._ again after code changes
+
+## Miscellaneous
+
+### Prune dangling images
+
+`docker image prune`

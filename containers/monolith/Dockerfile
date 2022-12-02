@@ -1,10 +1,7 @@
-FROM public.ecr.aws/lambda/python:3.8
+FROM public.ecr.aws/lambda/python:3.8 AS sc_monolith_base
 
 LABEL maintainer="Casey Slaught <casey@smartcarte.earth>"
 LABEL authors="Casey Slaught <casey@smartcarte.earth>"
-
-COPY src ${LAMBDA_TASK_ROOT}/src
-
 
 # install system libraries
 RUN \
@@ -241,10 +238,10 @@ RUN \
         CFLAGS="-O2 -Os" CXXFLAGS="-O2 -Os" \
         LDFLAGS="-Wl,-rpath,'\$\$ORIGIN'"; \
     make -j ${NPROC} install; \
-    cd ${BUILD};
+    cd ${BUILD}; rm -rf gdal;
 
-# rm -rf gdal
 
+FROM sc_monolith_base AS sc_monolith_python
 
 COPY requirements*.txt ./
 
@@ -252,5 +249,7 @@ RUN \
     pip install -r requirements-pre.txt; \
     pip install -r requirements.txt
 
+
+COPY src ${LAMBDA_TASK_ROOT}/src
 
 CMD ["src.handler.handle"]
