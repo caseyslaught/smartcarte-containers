@@ -1,4 +1,5 @@
 geopandas==0.12.1
-pystac-client
+jupyterlab
 rasterio==1.2.0 --no-binary rasterio
+rioxarray
 xarray==2022.11.0

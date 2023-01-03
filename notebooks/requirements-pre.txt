@@ -1,0 +1,5 @@
+Fiona==1.8.22
+numpy==1.23.4
+pyproj==3.0.0.post1
+Rtree==1.0.1
+Shapely==1.7.1

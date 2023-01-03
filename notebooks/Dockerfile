@@ -3,8 +3,6 @@ FROM public.ecr.aws/lambda/python:3.8
 LABEL maintainer="Casey Slaught <casey@smartcarte.earth>"
 LABEL authors="Casey Slaught <casey@smartcarte.earth>"
 
-COPY src ${LAMBDA_TASK_ROOT}/src
-
 
 # install system libraries
 RUN \
@@ -245,6 +243,7 @@ RUN \
 
 # rm -rf gdal
 
+COPY *.ipynb ./
 
 COPY requirements*.txt ./
 
@@ -252,5 +251,3 @@ RUN \
     pip install -r requirements-pre.txt; \
     pip install -r requirements.txt
 
-
-CMD ["src.handler.handle"]

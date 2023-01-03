@@ -6,13 +6,14 @@ LABEL authors="Casey Slaught <casey@smartcarte.earth>"
 # install system libraries
 RUN \
     yum makecache fast; \
-    yum install -y gcc gcc-c++; \
+    yum install -y gcc gcc-c++ openssl-devel; \
     yum install -y libtiff-devel libjpeg-devel bzip2; \ 
     yum install -y flex flex-devel bison bison-devel byacc; \
     yum install -y wget libpng-devel nasm rsync; \
     yum install -y tar.x86_64 make;  \
     yum install -y cmake3; \
     yum install -y bash-completion --enablerepo=epel; \
+    yum install -y perl-core zlib-devel; \
     yum clean all; \
     yum autoremove
 
@@ -32,10 +33,11 @@ ENV \
     PKGCONFIG_VERSION=0.29.2 \
     SZIP_VERSION=2.1.1 \
     WEBP_VERSION=1.1.0 \
-    ZSTD_VERSION=1.4.5 \
-    OPENSSL_VERSION=1.1.1
+    ZSTD_VERSION=1.4.5
 
-# Paths to things
+# OPENSSL_VERSION=1.1.1
+
+# paths to things
 ENV \
     BUILD=/build \
     NPROC=4 \
@@ -53,6 +55,16 @@ ENV PATH=$PREFIX/bin/:$PATH
 WORKDIR ${BUILD}
 
 
+# Open SSL
+#RUN \
+#    mkdir openssl; \
+#    wget -qO- https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz \
+#        | tar xvz -C openssl --strip-components=1; cd openssl; \
+#    ./config shared --prefix=${PREFIX}/openssl --openssldir=${PREFIX}/openssl; \
+#    make depend; make -j ${NPROC} install; \
+#    cd ${BUILD};    
+# rm -rf openssl;
+
 # nghttp2
 RUN \
     mkdir nghttp2; \
@@ -68,10 +80,11 @@ RUN \
     mkdir curl; \
     wget -qO- https://curl.haxx.se/download/curl-${CURL_VERSION}.tar.gz \
         | tar xvz -C curl --strip-components=1; cd curl; \
-    ./configure --prefix=${PREFIX} --disable-manual --disable-cookies --with-nghttp2=${PREFIX}; \
+    ./configure --prefix=${PREFIX} --disable-manual --disable-cookies --with-nghttp2=${PREFIX} --with-ssl; \
     make -j ${NPROC} install; \
-    cd ${BUILD}; rm -rf curl;
+    cd ${BUILD};
 
+# rm -rf curl;
 
 # pkg-config - version > 2.5 required for GDAL 2.3+
 RUN \
@@ -80,7 +93,9 @@ RUN \
         | tar xvz -C pkg-config --strip-components=1; cd pkg-config; \
     ./configure --prefix=$PREFIX --with-internal-glib CFLAGS="-O2 -Os"; \
     make -j ${NPROC} install; \
-    cd ${BUILD}; rm -rf pkg-config;
+    cd ${BUILD}; 
+    
+# rm -rf pkg-config;
 
 
 # sqlite3 (required by proj)
@@ -90,17 +105,24 @@ RUN \
         | tar xvz -C sqlite3 --strip-components=1; cd sqlite3; \
     ./configure --prefix=$PREFIX; \
     make; make install; \
-    cd ${BUILD}; rm -rf sqlite3;
+    cd ${BUILD}; 
 
+# rm -rf sqlite3;
+
+
+#TODO: configure: error: PROJ 6 symbols not found 
 
 # proj
 RUN \
     mkdir proj; \
     wget -qO- http://download.osgeo.org/proj/proj-$PROJ_VERSION.tar.gz \
         | tar xvz -C proj --strip-components=1; cd proj; \
-    SQLITE3_LIBS="=L$PREFIX/lib -lsqlite3" SQLITE3_INCLUDE_DIRS=$PREFIX/include/proj ./configure --prefix=$PREFIX; \
+    SQLITE3_LIBS="=L$PREFIX/lib -lsqlite3" SQLITE3_INCLUDE_DIRS=$PREFIX/include/proj \
+        ./configure --prefix=$PREFIX; \
     make -j ${NPROC} install; \
-    cd ${BUILD}; rm -rf proj;
+    cd ${BUILD}; 
+    
+# rm -rf proj;
 
 
 # GEOS
@@ -113,63 +135,6 @@ RUN \
     cd ${BUILD}; rm -rf geos;
 
 
-# szip (for hdf)
-RUN \
-    mkdir szip; \
-    wget -qO- https://support.hdfgroup.org/ftp/lib-external/szip/$SZIP_VERSION/src/szip-$SZIP_VERSION.tar.gz | tar xvz -C szip --strip-components=1; \
-    cd szip; \
-    ./configure --prefix=$PREFIX; \
-    make -j ${NPROC} install; \
-    cd ${BUILD}; rm -rf szip;
-
-
-# libhdf4
-RUN \
-    mkdir hdf4; \
-    wget -qO- https://support.hdfgroup.org/ftp/HDF/releases/HDF$HDF4_VERSION/src/hdf-$HDF4_VERSION.tar \
-        | tar xv -C hdf4 --strip-components=1; cd hdf4; \
-    ./configure \
-        --prefix=$PREFIX \
-        --with-szlib=$PREFIX \
-        --enable-shared \
-        --disable-netcdf \
-        --disable-fortran; \
-    make -j ${NPROC} install; \
-    cd ${BUILD}; rm -rf hdf4;
-
-
-# libhdf5
-RUN \
-    mkdir hdf5; \
-    wget -qO- https://support.hdfgroup.org/ftp/HDF5/releases/hdf5-${HDF5_VERSION%.*}/hdf5-${HDF5_VERSION}/src/hdf5-$HDF5_VERSION.tar.gz \
-        | tar xvz -C hdf5 --strip-components=1; cd hdf5; \
-    ./configure \
-        --prefix=$PREFIX \
-        --with-szlib=$PREFIX; \
-    make -j ${NPROC} install; \
-    cd ${BUILD}; rm -rf hdf5;
-
-
-# NetCDF
-RUN \
-    mkdir netcdf; \
-    wget -qO- https://github.com/Unidata/netcdf-c/archive/v$NETCDF_VERSION.tar.gz \
-        | tar xvz -C netcdf --strip-components=1; cd netcdf; \
-    ./configure --prefix=$PREFIX --enable-hdf4; \
-    make -j ${NPROC} install; \
-    cd ${BUILD}; rm -rf netcdf;
-
-
-# WEBP
-RUN \
-    mkdir webp; \
-    wget -qO- https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-${WEBP_VERSION}.tar.gz \
-        | tar xvz -C webp --strip-components=1; cd webp; \
-    CFLAGS="-O2 -Wl,-S" PKG_CONFIG_PATH="/usr/lib64/pkgconfig" ./configure --prefix=$PREFIX; \
-    make -j ${NPROC} install; \
-    cd ${BUILD}; rm -rf webp;
-
-
 # ZSTD
 RUN \
     mkdir zstd; \
@@ -177,26 +142,6 @@ RUN \
         | tar -xvz -C zstd --strip-components=1; cd zstd; \
     make -j ${NPROC} install PREFIX=$PREFIX ZSTD_LEGACY_SUPPORT=0 CFLAGS=-O1 --silent; \
     cd ${BUILD}; rm -rf zstd;
-
-
-# openjpeg
-RUN \
-    mkdir openjpeg; \
-    wget -qO- https://github.com/uclouvain/openjpeg/archive/v$OPENJPEG_VERSION.tar.gz \
-        | tar xvz -C openjpeg --strip-components=1; cd openjpeg; mkdir build; cd build; \
-    cmake3 .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$PREFIX; \
-    make -j ${NPROC} install; \
-    cd ${BUILD}; rm -rf openjpeg;
-
-
-# jpeg_turbo
-RUN \
-    mkdir jpeg; \
-    wget -qO- https://github.com/libjpeg-turbo/libjpeg-turbo/archive/${LIBJPEG_TURBO_VERSION}.tar.gz \
-        | tar xvz -C jpeg --strip-components=1; cd jpeg; \
-    cmake3 -G"Unix Makefiles" -DCMAKE_INSTALL_PREFIX=$PREFIX .; \
-    make -j $(nproc) install; \
-    cd ${BUILD}; rm -rf jpeg;
 
 
 # geotiff
@@ -219,14 +164,8 @@ RUN \
         --disable-debug \
         --disable-static \
         --prefix=${PREFIX} \
-        --with-openjpeg \
         --with-geotiff=${PREFIX} \
-        --with-hdf4=${PREFIX} \
-        --with-hdf5=${PREFIX} \
-        --with-netcdf=${PREFIX} \
-        --with-webp=${PREFIX} \
         --with-zstd=${PREFIX} \
-        --with-jpeg=${PREFIX} \
         --with-threads=yes \
         --with-sqlite3=${PREFIX} \
         --with-curl=${PREFIX}/bin/curl-config \
@@ -238,7 +177,9 @@ RUN \
         CFLAGS="-O2 -Os" CXXFLAGS="-O2 -Os" \
         LDFLAGS="-Wl,-rpath,'\$\$ORIGIN'"; \
     make -j ${NPROC} install; \
-    cd ${BUILD}; rm -rf gdal;
+    cd ${BUILD};
+    
+# rm -rf gdal;
 
 
 FROM sc_monolith_base AS sc_monolith_python
@@ -247,7 +188,8 @@ COPY requirements*.txt ./
 
 RUN \
     pip install -r requirements-pre.txt; \
-    pip install -r requirements.txt
+    pip install -r requirements.txt; \
+    pip install GDAL==${GDAL_VERSION}
 
 
 COPY src ${LAMBDA_TASK_ROOT}/src

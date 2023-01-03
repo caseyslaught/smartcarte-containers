@@ -37,6 +37,10 @@ Invoke HTTP request with Postman (Smart Carte/containers/monolith) or...
 
 Stop container and restart run _docker run..._ again after code changes
 
+Or run functions directly from Docker command line after starting with docker run above...
+`cd /var/task`
+`python -c "from src.common.utilities.imagery import _debug; _debug()"`
+
 ## Miscellaneous
 
 ### Prune dangling images
