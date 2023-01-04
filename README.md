@@ -46,3 +46,7 @@ Or run functions directly from Docker command line after starting with docker ru
 ### Prune dangling images
 
 `docker image prune`
+
+### Copy a file from Docker container to host
+
+`docker cp hardcore_keller:/tmp/S2A_35MRU_20210825_0_L2A/B02_masked.tif C:\Users\casey\Desktop\B02_masked.tif`

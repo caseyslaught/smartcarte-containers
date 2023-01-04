@@ -1,19 +1,22 @@
+import glob
 import numpy as np
+import numpy.ma as ma
 import os
 from osgeo import gdal, osr
 from pystac import ItemCollection
 from pystac_client import Client
 import rasterio
 import rasterio.merge
+from rasterio.windows import Window
 from shapely.geometry import box, shape, Point
 
+from src.common.constants import NODATA_BYTE, NODATA_UINT16
+from src.common.utilities.masking import apply_cloud_mask
 from src.common.utilities.projections import reproject_shape
 
-BLANK_TIF_PATH = '/tmp/blank.tif'
 
+BLANK_TIF_PATH = '/tmp/blank.tif'
 S2_BANDS = ['SCL', 'B02', 'B03', 'B04', 'B08'] # make sure SCL first
-NODATA_UINT16 = 65535
-NODATA_BYTE = 255
 
 
 def _get_collection(start_date, end_date, bbox, max_cloud_cover=10):
@@ -111,13 +114,6 @@ def _create_blank_tif(bbox_poly_ea):
 
 
 
-
-def _create_composite(imagesList, method="median"):
-    """
-    """
-    pass
-
-
 def _download_images(collection, bbox):
 
     bbox_poly_ll = box(*bbox)
@@ -125,6 +121,7 @@ def _download_images(collection, bbox):
 
     _create_blank_tif(bbox_poly_ea)
 
+    image_paths = []
     for item in list(collection):
         print(item.id)
         print(item.properties["sentinel:grid_square"], "-", str(item.properties['sentinel:utm_zone']) + item.properties["sentinel:latitude_band"])
@@ -162,9 +159,10 @@ def _download_images(collection, bbox):
             
             band_name = s3_href.split('/')[-1].split('.')[0]
             band_path = f'{scene_dir}/{band_name}.tif'
+            image_paths.append(band_path)
             
-            #if os.path.exists(band_path):
-            #    continue
+            if os.path.exists(band_path):
+                continue
 
             with rasterio.open(s3_href) as s3_src:
 
@@ -229,7 +227,53 @@ def _download_images(collection, bbox):
 
                 with rasterio.open(band_path, "w", **merged_profile) as new_src:
                     new_src.write(merged, 1)
+                
+    return image_paths
             
+
+
+def _create_stack(band):
+    print('stack', band)
+
+    masked_paths = glob.glob(f'/tmp/*/{band}_masked.tif')
+    with rasterio.open(masked_paths[0]) as meta_src:
+        meta = meta_src.meta.copy()
+
+    meta.update(count=len(masked_paths))
+
+    stack_path = f'/tmp/{band}_stack.tif'
+    with rasterio.open(stack_path, 'w', **meta) as stack_dst:
+        for id, layer in enumerate(masked_paths, start=1):
+            with rasterio.open(layer) as band_src:
+                stack_dst.write_band(id, band_src.read(1))
+    
+
+
+def _create_composite(band, method="median"):
+    print('composite', band)
+    
+    stack_path = f'/tmp/{band}_stack.tif'
+
+    if not os.path.exists(stack_path):
+        raise ValueError(f'{stack_path} does not exist')
+
+    with rasterio.open(stack_path) as stack_src:
+    
+        width, height = stack_src.width, stack_src.height
+        composite_path = f'/tmp/{band}_composite.tif'
+        print(composite_path)
+        
+        meta = stack_src.meta.copy()
+        meta.update(count=1) # update count if adding variance
+        
+        with rasterio.open(composite_path, "w", **meta) as composite_dst:
+            for row in range(height):    
+                chunk = stack_src.read(window=Window(0, row, width, 1), masked=True)
+                centre = np.rint(ma.median(chunk, axis=0)).astype(np.uint16)
+                centre_data = centre.data
+                centre_data[centre.mask] = NODATA_UINT16   
+                composite_dst.write(centre_data, window=Window(0, row, width, 1), indexes=1)
+
 
 def get_processed_image_array(start_date, end_date, bbox):
     """
@@ -244,9 +288,16 @@ def get_processed_image_array(start_date, end_date, bbox):
 
     collection = _get_collection(start_date, end_date, bbox)
 
-    _download_images(collection, bbox)
+    original_paths = _download_images(collection, bbox)
 
+    for path in original_paths:
+        apply_cloud_mask(path)
 
+    for band in S2_BANDS:
+        if band == "SCL": continue 
+
+        _create_stack(band)
+        _create_composite(band)
 
 
 from datetime import datetime as dt
