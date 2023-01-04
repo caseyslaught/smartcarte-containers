@@ -23,7 +23,6 @@ def _add_cloud_direction(image):
     pass
 
 
-
 def _mask_band(band_array, scl_array):
     
     mask = np.isin(scl_array, CLOUD_SCL_CLASSES)

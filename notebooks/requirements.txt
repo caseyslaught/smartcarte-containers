@@ -1,5 +1,6 @@
 geopandas==0.12.1
 jupyterlab
 rasterio==1.2.0 --no-binary rasterio
+requests
 rioxarray
 xarray==2022.11.0

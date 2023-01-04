@@ -67,7 +67,7 @@ def _get_collection(start_date, end_date, bbox, max_cloud_cover=10):
     print(f'{len(items)} filtered items')
             
     collection = ItemCollection(items=items)
-    collection.save_object('/tmp/s2_collection.json')
+    # collection.save_object('/tmp/s2_collection.json')
 
     return collection
 
@@ -300,14 +300,3 @@ def get_processed_image_array(start_date, end_date, bbox):
         _create_composite(band)
 
 
-from datetime import datetime as dt
-
-def _debug():
-
-    start_date = dt(2021, 8, 1, 1)
-    end_date = dt(2021, 10, 1, 1)
-    bbox = [29.270558, -1.648015, 29.705426, -1.311937]
-
-    print(bbox)
-
-    get_processed_image_array(start_date, end_date, bbox)
