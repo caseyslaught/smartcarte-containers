@@ -3,8 +3,7 @@ import numpy.ma as ma
 import os
 import rasterio
 
-
-from src.common.constants import NODATA_BYTE, NODATA_UINT16
+from common.constants import NODATA_BYTE, NODATA_UINT16
 
 
 CLOUD_SCL_CLASSES = [0, 1, 2, 3, 8, 9, 10, 11]

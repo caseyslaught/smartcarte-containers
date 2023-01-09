@@ -1,4 +1,4 @@
-FROM public.ecr.aws/lambda/python:3.8 AS sc_monolith_base
+FROM public.ecr.aws/lambda/python:3.8 AS sc_monolith_1
 
 LABEL maintainer="Casey Slaught <casey@smartcarte.earth>"
 LABEL authors="Casey Slaught <casey@smartcarte.earth>"
@@ -35,8 +35,6 @@ ENV \
     WEBP_VERSION=1.1.0 \
     ZSTD_VERSION=1.4.5
 
-# OPENSSL_VERSION=1.1.1
-
 # paths to things
 ENV \
     BUILD=/build \
@@ -53,6 +51,9 @@ ENV PATH=$PREFIX/bin/:$PATH
 
 # switch to a build directory
 WORKDIR ${BUILD}
+
+
+FROM sc_monolith_1 as sc_monolith_2
 
 
 # Open SSL
@@ -82,9 +83,7 @@ RUN \
         | tar xvz -C curl --strip-components=1; cd curl; \
     ./configure --prefix=${PREFIX} --disable-manual --disable-cookies --with-nghttp2=${PREFIX} --with-ssl; \
     make -j ${NPROC} install; \
-    cd ${BUILD};
-
-# rm -rf curl;
+    cd ${BUILD}; rm -rf curl;
 
 # pkg-config - version > 2.5 required for GDAL 2.3+
 RUN \
@@ -93,9 +92,7 @@ RUN \
         | tar xvz -C pkg-config --strip-components=1; cd pkg-config; \
     ./configure --prefix=$PREFIX --with-internal-glib CFLAGS="-O2 -Os"; \
     make -j ${NPROC} install; \
-    cd ${BUILD}; 
-    
-# rm -rf pkg-config;
+    cd ${BUILD}; rm -rf pkg-config;
 
 
 # sqlite3 (required by proj)
@@ -105,12 +102,11 @@ RUN \
         | tar xvz -C sqlite3 --strip-components=1; cd sqlite3; \
     ./configure --prefix=$PREFIX; \
     make; make install; \
-    cd ${BUILD}; 
-
-# rm -rf sqlite3;
+    cd ${BUILD}; rm -rf sqlite3;
 
 
-#TODO: configure: error: PROJ 6 symbols not found 
+FROM sc_monolith_2 as sc_monolith_3
+
 
 # proj
 RUN \
@@ -120,9 +116,7 @@ RUN \
     SQLITE3_LIBS="=L$PREFIX/lib -lsqlite3" SQLITE3_INCLUDE_DIRS=$PREFIX/include/proj \
         ./configure --prefix=$PREFIX; \
     make -j ${NPROC} install; \
-    cd ${BUILD}; 
-    
-# rm -rf proj;
+    cd ${BUILD}; rm -rf proj;
 
 
 # GEOS
@@ -155,6 +149,9 @@ RUN \
     cd ${BUILD}; rm -rf geotiff;
 
 
+FROM sc_monolith_3 as sc_monolith_4
+
+
 # GDAL
 RUN \
     mkdir gdal; \
@@ -177,12 +174,11 @@ RUN \
         CFLAGS="-O2 -Os" CXXFLAGS="-O2 -Os" \
         LDFLAGS="-Wl,-rpath,'\$\$ORIGIN'"; \
     make -j ${NPROC} install; \
-    cd ${BUILD};
-    
-# rm -rf gdal;
+    cd ${BUILD}; rm -rf gdal;
 
 
-FROM sc_monolith_base AS sc_monolith_python
+FROM sc_monolith_4 as sc_monolith_5
+
 
 COPY requirements*.txt ./
 
@@ -192,6 +188,13 @@ RUN \
     pip install GDAL==${GDAL_VERSION}
 
 
+FROM sc_monolith_5 as sc_monolith_6
+
+
 COPY src ${LAMBDA_TASK_ROOT}/src
 
-CMD ["src.handler.handle"]
+COPY .aws /root/.aws
+
+WORKDIR ${LAMBDA_TASK_ROOT}/src
+
+ENTRYPOINT [ "python", "-u", "handler.py" ]

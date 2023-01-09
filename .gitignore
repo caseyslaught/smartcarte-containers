@@ -5,8 +5,7 @@ containers/*/common/
 *collection.json
 *.tif
 *.tiff
-
-
+.aws/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

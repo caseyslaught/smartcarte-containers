@@ -1,45 +1,27 @@
 # Smart Carte | Containers and Notebooks
 
-### The containers are run on AWS Lambda.
+### The containers are run on AWS Fargate in us-west-2 in order to be co-located with Sentinel-2 COGs.
 
-### Each folder in _containers_ corresponds to a Lambda function.
+### Each folder in _containers_ corresponds to a Fargate task.
 
-### Each Lambda function is run on a custom Docker container.
+## Building
 
-### Jupyter Notebooks run on a Docker container locally.
-
-## Set up
-
-### 1. Go into each container function
-
-`cd containers/monolith'`
-
-### 2. Build the Docker containers
-
-- #### Jupyter
-
-  `docker build ./notebooks/ -t sc_jupyter:latest`
-
-- #### Monolith
-  `docker build ./containers/monolith/ -t sc_monolith:latest`
-
-### 3. Start Jupyter Notebooks container
-
-`docker run ... 0.0.0.0:8888 ???`
+`docker build ./containers/monolith/ -t sc_monolith:latest`
 
 ## Debugging
 
-`docker run -p 9000:8080 -v %cd%/src:/var/task/src sc_monolith:latest`
+`docker run -it --entrypoint /bin/bash -v %cd%/src:/var/task/src sc_monolith:latest`
+`python handler.py`
 
-Invoke HTTP request with Postman (Smart Carte/containers/monolith) or...
+## Deploying everything to ECS
 
-`curl -XPOST "http://localhost:9000/2015-03-31/functions/function/invocations" -d {}`
+Tag the image, login, upload the image to ECR, update ECS service - every time.
 
-Stop container and restart run _docker run..._ again after code changes
-
-Or run functions directly from Docker command line after starting with docker run above...
-`cd /var/task`
-`python -c "from src.common.utilities.imagery import _debug; _debug()"`
+`docker build . -t sc_monolith:latest`
+`docker tag sc_monolith 981763725120.dkr.ecr.us-west-2.amazonaws.com/sc_monolith:latest`
+`aws ecr get-login-password --region us-west-2 --profile smartcarte | docker login -u AWS --password-stdin 981763725120.dkr.ecr.us-west-2.amazonaws.com`
+`docker push 981763725120.dkr.ecr.us-west-2.amazonaws.com/sc_monolith:latest`
+`aws ecs update-service --profile smartcarte --cluster default --service sc-monolith-service --force-new-deployment --region us-west-2`
 
 ## Miscellaneous
 
@@ -49,4 +31,9 @@ Or run functions directly from Docker command line after starting with docker ru
 
 ### Copy a file from Docker container to host
 
-`docker cp hardcore_keller:/tmp/S2A_35MRU_20210825_0_L2A/B02_masked.tif C:\Users\casey\Desktop\B02_masked.tif`
+`docker cp hardcore_keller:/tmp/before/S2A_35MRU_20210825_0_L2A/B02_masked.tif C:\Users\casey\Desktop\B02_masked.tif`  
+`docker cp hardcore_keller:/tmp/before/B08_composite.tif C:\Users\casey\Desktop\B08_composite.tif`
+
+### Location of _src_ directory
+
+/var/task
