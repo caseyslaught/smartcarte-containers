@@ -175,7 +175,7 @@ def _download_images(collection, bbox, dir_name):
     image_paths = []
     for item in list(collection):
         print(item.id)
-        print(item.properties["sentinel:grid_square"], "-", str(item.properties['sentinel:utm_zone']) + item.properties["sentinel:latitude_band"])
+        # print(item.properties["sentinel:grid_square"], "-", str(item.properties['sentinel:utm_zone']) + item.properties["sentinel:latitude_band"])
 
         band_hrefs = [item.assets[band].href for band in S2_BANDS]
         
@@ -226,7 +226,7 @@ def _download_images(collection, bbox, dir_name):
 
                 data = s3_src.read(1, window=window)
                 height, width = data.shape[0], data.shape[1]
-                print(f'\t{band_name}... rows: {height}, cols: {width}')
+                # print(f'\t{band_name}... rows: {height}, cols: {width}')
 
                 new_transform = rasterio.transform.from_bounds(
                     overlap_sw_utm.x, overlap_sw_utm.y, 
