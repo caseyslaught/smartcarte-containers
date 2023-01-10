@@ -29,7 +29,20 @@ def update_task_status(task_uid, task_type, status):
     })
 
     if res.status_code != 200:
-        print(res.status_code)
-        raise ValueError()
+        raise ValueError(res.text)
 
 
+
+def update_forest_change_task_results(task_uid, gain_area, loss_area, total_area):
+
+    url = f'{API_BASE_URL}/tasks/update_forest_change_task_results/'
+
+    res = requests.post(url, {
+        "task_uid": task_uid,
+        "gain_area": gain_area,
+        "loss_area": loss_area,
+        "total_area": total_area
+    })
+
+    if res.status_code != 200:
+        raise ValueError(res.text)

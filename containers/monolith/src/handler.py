@@ -1,5 +1,6 @@
 from datetime import datetime as dt
 from datetime import timedelta as td
+from matplotlib import pyplot as plt
 import rasterio
 from shapely.geometry import shape
 import sys
@@ -8,9 +9,11 @@ from common import exceptions
 from common.constants import DAYS_BUFFER, NODATA_INT8
 from common.utilities import api
 from common.utilities.indices import save_ndvi
-from common.utilities.imagery import save_composite_images, get_collection, save_tif_to_s3
+from common.utilities.imagery import save_composite_images, get_collection, save_tif_to_s3, save_image_to_s3
 from common.utilities.prediction import save_forest_classification, save_forest_change
 
+
+"""
 
 def _debug():
 
@@ -47,8 +50,6 @@ def _debug():
     after_ndvi_path = save_ndvi(after_dict['B04'], after_dict['B08'], "after")
     save_tif_to_s3(task_uid, before_ndvi_path, "before")
     save_tif_to_s3(task_uid, after_ndvi_path, "after")
-
-
 
 
 from matplotlib import pyplot as plt
@@ -90,10 +91,12 @@ def _forest():
     plt.imshow(before_forest, cmap="RdYlGn")
     plt.savefig('/tmp/before_forest.png')
     plt.clf()
+    save_image_to_s3(task_uid, '/tmp/before_forest.png')
 
     plt.imshow(after_forest, cmap="RdYlGn")
     plt.savefig('/tmp/after_forest.png')   
     plt.clf()
+    save_image_to_s3(task_uid, '/tmp/after_forest.png')
 
     change_path = save_forest_change(before_pred_path, after_pred_path)
     with rasterio.open(change_path) as change_src:
@@ -102,7 +105,15 @@ def _forest():
     plt.imshow(change, cmap="RdYlGn")
     plt.savefig('/tmp/change.png')   
     plt.clf()
+    save_image_to_s3(task_uid, '/tmp/change.png')
+"""
 
+
+def _save_image(data, image_path, task_uid):
+    plt.imshow(data, cmap="RdYlGn")
+    plt.savefig(image_path)
+    plt.clf()
+    save_image_to_s3(task_uid, image_path)
 
 
 def handle():
@@ -146,15 +157,17 @@ def handle():
         # get collections
 
         try:
-            start_collection = get_collection(start_date_begin, start_date_end, bbox, "before", max_cloud_cover=30)
+            start_collection = get_collection(start_date_begin, start_date_end, bbox, "before", max_cloud_cover=20)
         except exceptions.EmptyCollectionException:
             print("before collection is empty")
+            api.update_task_status(task_uid, task_type, "failed")
             return
 
         try:
-            after_collection = get_collection(end_date_begin, end_date_end, bbox, "after", max_cloud_cover=30)
+            after_collection = get_collection(end_date_begin, end_date_end, bbox, "after", max_cloud_cover=24)
         except exceptions.EmptyCollectionException:
             print("after collection is empty")
+            api.update_task_status(task_uid, task_type, "failed")
             return 
 
         
@@ -164,12 +177,14 @@ def handle():
             before_dict = save_composite_images(start_collection, bbox, "before")
         except exceptions.IncompleteCoverageException:
             print('before composite does not completely cover study area')
+            api.update_task_status(task_uid, task_type, "failed")
             return
 
         try:
             after_dict = save_composite_images(after_collection, bbox, "after")
         except exceptions.IncompleteCoverageException:
             print('after composite does not completely cover study area')
+            api.update_task_status(task_uid, task_type, "failed")
             return
 
         # upload composites
@@ -196,19 +211,26 @@ def handle():
         with rasterio.open(before_pred_path) as forest_src:
             before_forest = forest_src.read(1, masked=True)
 
+        _save_image(before_forest, '/tmp/before_forest.png', task_uid)
+
+    
         after_pred_path = save_forest_classification(after_dict, "after")
         with rasterio.open(after_pred_path) as forest_src:
             after_forest = forest_src.read(1, masked=True)
 
-        gain = (after_forest - before_forest) > 0
-        loss = (after_forest - before_forest) < 0
+        _save_image(after_forest, '/tmp/after_forest.png', task_uid)
 
-        # TODO: run start and end images through forest classifier
-        # TODO: take difference between two 
-        # TODO: calculate statistics and update some database linked to task
-        # TODO: save composite images, forest classifications, and result to S3
-        # TODO: update task.status = "complete"
-        # TODO: update task...links to S3 stuff
+
+        change_path = save_forest_change(before_pred_path, after_pred_path)
+        with rasterio.open(change_path) as change_src:
+            change = change_src.read(1, masked=True)
+
+        _save_image(change, '/tmp/change.png', task_uid)
+
+
+        # update results
+
+        api.update_forest_change_task_results(task_uid, 100, 80, 520)
 
 
     elif task_type == "burn_areas":
@@ -216,6 +238,14 @@ def handle():
 
     elif task_type == "lulc_change":
         pass
+
+    else:
+        raise ValueError()
+
+
+    # update status
+
+    api.update_task_status(task_uid, task_type, "complete")
 
 
 

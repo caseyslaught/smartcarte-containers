@@ -1,5 +1,6 @@
 boto3
 geopandas==0.12.1
+matplotlib
 pystac-client
 rasterio==1.2.0 --no-binary rasterio
 requests

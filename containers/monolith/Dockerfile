@@ -185,7 +185,8 @@ COPY requirements*.txt ./
 RUN \
     pip install -r requirements-pre.txt; \
     pip install -r requirements.txt; \
-    pip install GDAL==${GDAL_VERSION}
+    pip install GDAL==${GDAL_VERSION}; \
+    pip install matplotlib; 
 
 
 FROM sc_monolith_5 as sc_monolith_6

@@ -341,3 +341,14 @@ def save_tif_to_s3(task_uid, tif_path, step):
     s3.meta.client.upload_file(tif_path, S3_TASKS_BUCKET, object_key)
 
 
+
+def save_image_to_s3(task_uid, image_path):
+
+    file_name = image_path.split('/')[-1]
+    object_key = f'{task_uid}/{file_name}'
+
+    print(f'uploading {image_path} to s3://{S3_TASKS_BUCKET}/{object_key}')
+
+    s3 = boto3.resource('s3')
+    s3.meta.client.upload_file(image_path, S3_TASKS_BUCKET, object_key)
+
