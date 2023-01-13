@@ -1,5 +1,9 @@
+boto3
+gdal2tiles
 geopandas==0.12.1
 jupyterlab
+matplotlib
+pystac-client
 rasterio==1.2.0 --no-binary rasterio
 requests
 rioxarray

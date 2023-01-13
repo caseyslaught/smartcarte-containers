@@ -1,4 +1,4 @@
-FROM public.ecr.aws/lambda/python:3.8
+FROM public.ecr.aws/lambda/python:3.8 AS sc_notebook_1
 
 LABEL maintainer="Casey Slaught <casey@smartcarte.earth>"
 LABEL authors="Casey Slaught <casey@smartcarte.earth>"
@@ -7,15 +7,16 @@ LABEL authors="Casey Slaught <casey@smartcarte.earth>"
 # install system libraries
 RUN \
     yum makecache fast; \
-    yum install -y gcc gcc-c++; \
+    yum install -y gcc gcc-c++ openssl-devel; \
     yum install -y libtiff-devel libjpeg-devel bzip2; \ 
     yum install -y flex flex-devel bison bison-devel byacc; \
     yum install -y wget libpng-devel nasm rsync; \
     yum install -y tar.x86_64 make;  \
     yum install -y cmake3; \
     yum install -y bash-completion --enablerepo=epel; \
+    yum install -y perl-core zlib-devel; \
     yum clean all; \
-    yum autoremove
+    yum autoremove;
 
 # versions of packages
 ENV \
@@ -52,6 +53,9 @@ ENV PATH=$PREFIX/bin/:$PATH
 
 # switch to a build directory
 WORKDIR ${BUILD}
+
+
+FROM sc_notebook_1 AS sc_notebook_2
 
 
 # nghttp2
@@ -94,6 +98,9 @@ RUN \
     cd ${BUILD}; rm -rf sqlite3;
 
 
+FROM sc_notebook_2 as sc_notebook_3
+
+
 # proj
 RUN \
     mkdir proj; \
@@ -124,51 +131,7 @@ RUN \
     cd ${BUILD}; rm -rf szip;
 
 
-# libhdf4
-RUN \
-    mkdir hdf4; \
-    wget -qO- https://support.hdfgroup.org/ftp/HDF/releases/HDF$HDF4_VERSION/src/hdf-$HDF4_VERSION.tar \
-        | tar xv -C hdf4 --strip-components=1; cd hdf4; \
-    ./configure \
-        --prefix=$PREFIX \
-        --with-szlib=$PREFIX \
-        --enable-shared \
-        --disable-netcdf \
-        --disable-fortran; \
-    make -j ${NPROC} install; \
-    cd ${BUILD}; rm -rf hdf4;
-
-
-# libhdf5
-RUN \
-    mkdir hdf5; \
-    wget -qO- https://support.hdfgroup.org/ftp/HDF5/releases/hdf5-${HDF5_VERSION%.*}/hdf5-${HDF5_VERSION}/src/hdf5-$HDF5_VERSION.tar.gz \
-        | tar xvz -C hdf5 --strip-components=1; cd hdf5; \
-    ./configure \
-        --prefix=$PREFIX \
-        --with-szlib=$PREFIX; \
-    make -j ${NPROC} install; \
-    cd ${BUILD}; rm -rf hdf5;
-
-
-# NetCDF
-RUN \
-    mkdir netcdf; \
-    wget -qO- https://github.com/Unidata/netcdf-c/archive/v$NETCDF_VERSION.tar.gz \
-        | tar xvz -C netcdf --strip-components=1; cd netcdf; \
-    ./configure --prefix=$PREFIX --enable-hdf4; \
-    make -j ${NPROC} install; \
-    cd ${BUILD}; rm -rf netcdf;
-
-
-# WEBP
-RUN \
-    mkdir webp; \
-    wget -qO- https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-${WEBP_VERSION}.tar.gz \
-        | tar xvz -C webp --strip-components=1; cd webp; \
-    CFLAGS="-O2 -Wl,-S" PKG_CONFIG_PATH="/usr/lib64/pkgconfig" ./configure --prefix=$PREFIX; \
-    make -j ${NPROC} install; \
-    cd ${BUILD}; rm -rf webp;
+FROM sc_notebook_3 as sc_notebook_4
 
 
 # ZSTD
@@ -178,27 +141,6 @@ RUN \
         | tar -xvz -C zstd --strip-components=1; cd zstd; \
     make -j ${NPROC} install PREFIX=$PREFIX ZSTD_LEGACY_SUPPORT=0 CFLAGS=-O1 --silent; \
     cd ${BUILD}; rm -rf zstd;
-
-
-# openjpeg
-RUN \
-    mkdir openjpeg; \
-    wget -qO- https://github.com/uclouvain/openjpeg/archive/v$OPENJPEG_VERSION.tar.gz \
-        | tar xvz -C openjpeg --strip-components=1; cd openjpeg; mkdir build; cd build; \
-    cmake3 .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$PREFIX; \
-    make -j ${NPROC} install; \
-    cd ${BUILD}; rm -rf openjpeg;
-
-
-# jpeg_turbo
-RUN \
-    mkdir jpeg; \
-    wget -qO- https://github.com/libjpeg-turbo/libjpeg-turbo/archive/${LIBJPEG_TURBO_VERSION}.tar.gz \
-        | tar xvz -C jpeg --strip-components=1; cd jpeg; \
-    cmake3 -G"Unix Makefiles" -DCMAKE_INSTALL_PREFIX=$PREFIX .; \
-    make -j $(nproc) install; \
-    cd ${BUILD}; rm -rf jpeg;
-
 
 # geotiff
 RUN \
@@ -211,6 +153,9 @@ RUN \
     cd ${BUILD}; rm -rf geotiff;
 
 
+FROM sc_notebook_4 as sc_notebook_5
+
+
 # GDAL
 RUN \
     mkdir gdal; \
@@ -220,14 +165,8 @@ RUN \
         --disable-debug \
         --disable-static \
         --prefix=${PREFIX} \
-        --with-openjpeg \
         --with-geotiff=${PREFIX} \
-        --with-hdf4=${PREFIX} \
-        --with-hdf5=${PREFIX} \
-        --with-netcdf=${PREFIX} \
-        --with-webp=${PREFIX} \
         --with-zstd=${PREFIX} \
-        --with-jpeg=${PREFIX} \
         --with-threads=yes \
         --with-sqlite3=${PREFIX} \
         --with-curl=${PREFIX}/bin/curl-config \
@@ -239,15 +178,20 @@ RUN \
         CFLAGS="-O2 -Os" CXXFLAGS="-O2 -Os" \
         LDFLAGS="-Wl,-rpath,'\$\$ORIGIN'"; \
     make -j ${NPROC} install; \
-    cd ${BUILD};
+    cd ${BUILD}; rm -rf gdal;
 
-# rm -rf gdal
 
-COPY *.ipynb ./
+FROM sc_notebook_5 AS sc_notebook_6
 
 COPY requirements*.txt ./
 
 RUN \
     pip install -r requirements-pre.txt; \
-    pip install -r requirements.txt
+    pip install -r requirements.txt; \
+    pip install GDAL==${GDAL_VERSION};
 
+WORKDIR /home/src
+
+EXPOSE 8888
+
+ENTRYPOINT ["jupyter", "lab", "--ip=0.0.0.0", "--allow-root"]
