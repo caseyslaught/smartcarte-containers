@@ -1,4 +1,5 @@
 boto3
+gdal2tiles
 geopandas==0.12.1
 matplotlib
 pystac-client

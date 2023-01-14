@@ -56,15 +56,6 @@ WORKDIR ${BUILD}
 FROM sc_monolith_1 as sc_monolith_2
 
 
-# Open SSL
-#RUN \
-#    mkdir openssl; \
-#    wget -qO- https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz \
-#        | tar xvz -C openssl --strip-components=1; cd openssl; \
-#    ./config shared --prefix=${PREFIX}/openssl --openssldir=${PREFIX}/openssl; \
-#    make depend; make -j ${NPROC} install; \
-#    cd ${BUILD};    
-# rm -rf openssl;
 
 # nghttp2
 RUN \
@@ -185,9 +176,7 @@ COPY requirements*.txt ./
 RUN \
     pip install -r requirements-pre.txt; \
     pip install -r requirements.txt; \
-    pip install GDAL==${GDAL_VERSION}; \
-    pip install matplotlib; 
-
+    pip install GDAL==${GDAL_VERSION};
 
 FROM sc_monolith_5 as sc_monolith_6
 

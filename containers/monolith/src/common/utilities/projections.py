@@ -1,4 +1,3 @@
-from functools import partial
 import pyproj
 from shapely.geometry import box, shape
 from shapely.ops import transform as shapely_transform

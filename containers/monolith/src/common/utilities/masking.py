@@ -1,3 +1,4 @@
+import glob
 import numpy as np
 import numpy.ma as ma
 import os
@@ -29,29 +30,34 @@ def _mask_band(band_array, scl_array):
     return masked_array
 
 
-def apply_cloud_mask(band_path):
-    
-    band_name = band_path.split('/')[-1].split('.')[0]
-    if band_name == "SCL": return
+def save_cloud_masked_images(scene_dict):
 
-    masked_path = band_path.replace('.tif', '_masked.tif')
-    if os.path.exists(masked_path):
-        return
+    masked_dict = {}
 
-    scl_path = band_path.replace(band_name, "SCL")
-    with rasterio.open(scl_path) as scl_src:
-        scl_data = scl_src.read(1)
+    for band_name in scene_dict:
+        if band_name == "SCL": continue
 
+        band_path = scene_dict[band_name]
 
-    with rasterio.open(band_path) as band_src:
-        print('\t' + str(band_src.height * band_src.width / 1e6) + f' m px - {band_path}')
-        
-        band_data = band_src.read(1)
-        masked_data = _mask_band(band_data, scl_data) # MaskedArray
-                    
-        zeroed_data = masked_data.data
-        zeroed_data[masked_data.mask] = NODATA_UINT16
-        
-        with rasterio.open(masked_path, "w", **band_src.profile) as masked_src:
-            masked_src.write(zeroed_data, 1)
+        masked_path = band_path.replace('.tif', '_masked.tif')
+        masked_dict[band_name] = masked_path
+
+        if os.path.exists(masked_path):
+            continue
+
+        scl_path = band_path.replace(band_name, "SCL")
+        with rasterio.open(scl_path) as scl_src:
+            scl_data = scl_src.read(1)
+
+        with rasterio.open(band_path) as band_src:        
+            band_data = band_src.read(1)
+            masked_data = _mask_band(band_data, scl_data) # MaskedArray
+                        
+            zeroed_data = masked_data.data
+            zeroed_data[masked_data.mask] = NODATA_UINT16
+            
+            with rasterio.open(masked_path, "w", **band_src.profile) as masked_src:
+                masked_src.write(zeroed_data, 1)
+
+    return masked_dict
 

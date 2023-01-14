@@ -6,6 +6,8 @@ containers/*/common/
 *.tif
 *.tiff
 .aws/
+tiles/
+tmp/
 
 *.png
 
