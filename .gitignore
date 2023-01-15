@@ -8,6 +8,8 @@ containers/*/common/
 .aws/
 tiles/
 tmp/
+notebooks/data/testing/
+notebooks/src/data/
 
 *.png
 

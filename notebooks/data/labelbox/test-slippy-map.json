@@ -9,13 +9,7 @@
       ],
       "min_zoom": 2,
       "max_zoom": 12,
-      "epsg": "EPSG3857",
-      "alternative_layers": [
-        {
-          "tile_layer_url": "https://api.mapbox.com/styles/v1/mapbox/satellite-streets-v11/tiles/{z}/{x}/{y}?access_token=pk.eyJ1Ijoic21hcnRjYXJ0ZSIsImEiOiJjbDh4M25pbjUwMnExNDBteGluYjIyOW9lIn0.Zj2KxxqMDysxPZdxk4f8PA",
-          "name": "Satellite"
-        }
-      ]
+      "epsg": "EPSG3857"
     }
   }
 ]
