@@ -7,4 +7,5 @@ pystac-client
 rasterio==1.2.0 --no-binary rasterio
 requests
 rioxarray
+scipy
 xarray==2022.11.0
