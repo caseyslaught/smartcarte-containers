@@ -183,12 +183,19 @@ RUN \
 
 FROM sc_notebook_5 AS sc_notebook_6
 
+
 COPY requirements*.txt ./
 
 RUN \
     pip install -r requirements-pre.txt; \
     pip install -r requirements.txt; \
     pip install GDAL==${GDAL_VERSION};
+
+
+FROM sc_notebook_6 AS sc_notebook_7
+
+
+COPY .aws /root/.aws
 
 WORKDIR /home/src
 

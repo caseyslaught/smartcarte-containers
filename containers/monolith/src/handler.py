@@ -7,20 +7,16 @@ from shapely.geometry import shape
 import sys
 
 from common import exceptions
-from common.constants import DAYS_BUFFER, NODATA_INT8
-from common.utilities import api
-from common.utilities.download import get_collection, get_processed_imagery
-from common.utilities.indices import save_ndvi
-from common.utilities.imagery import create_byte_rgb_vrt, create_rgb_map_tiles, save_tif_to_s3, save_photo_to_s3, save_tiles_dir_to_s3
-from common.utilities.prediction import save_forest_classification, save_forest_change
+from common.constants import DAYS_BUFFER
+from common.utilities import api, download, imagery, indices, prediction, upload
 
 
 
-def _plot_and_save(data, image_path, task_uid, step):
+def _plot_and_save(data, image_path, task_uid, subdir):
     plt.imshow(data, cmap="RdYlGn")
     plt.savefig(image_path)
     plt.clf()
-    save_photo_to_s3(task_uid, image_path, step)
+    upload.save_task_file_to_s3(image_path, subdir, task_uid)
 
 
 def handle():
@@ -32,6 +28,8 @@ def handle():
     task_uid = "c65c1f3a-ff8d-4c80-be9f-04355de64fa4"
     task_type = "forest_change"
 
+    base_dir = f"/tmp/{task_uid}"
+
     print("task_uid:", task_uid)
     print("task_type:", task_type)
 
@@ -41,9 +39,9 @@ def handle():
 
         # prepare directories
 
-        os.makedirs('/tmp/before', exist_ok=True)
-        os.makedirs('/tmp/after', exist_ok=True)
-        os.makedirs('/tmp/results', exist_ok=True)
+        os.makedirs(f'{base_dir}/before', exist_ok=True)
+        os.makedirs(f'{base_dir}/after', exist_ok=True)
+        os.makedirs(f'{base_dir}/results', exist_ok=True)
 
 
         # prepare parameters
@@ -72,76 +70,130 @@ def handle():
         # get collections
 
         try:
-            start_collection = get_collection(start_date_begin, start_date_end, bbox, "before", max_cloud_cover=20)
+            start_collection = download.get_collection(start_date_begin, start_date_end, bbox, "before", max_cloud_cover=30)
         except exceptions.EmptyCollectionException:
             print("before collection is empty")
             api.update_task_status(task_uid, task_type, "failed")
             return
 
         try:
-            after_collection = get_collection(end_date_begin, end_date_end, bbox, "after", max_cloud_cover=24)
+            after_collection = download.get_collection(end_date_begin, end_date_end, bbox, "after", max_cloud_cover=24)
         except exceptions.EmptyCollectionException:
             print("after collection is empty")
             api.update_task_status(task_uid, task_type, "failed")
             return 
 
+
+        ### prepare imagery ###
         
-        # get imagery and create map tiles
+        # before
 
-        before_dict = get_processed_imagery(start_collection, bbox, "before")
-        before_rgb_vrt_path = create_byte_rgb_vrt(before_dict, "before")
-        before_tiles_dir = create_rgb_map_tiles(before_rgb_vrt_path, "before")
+        before_composites = download.get_processed_imagery(start_collection, bbox, "before")
+        before_all_band_paths = list(before_composites.values())
+        before_rgb_band_paths = [before_composites['B04'], before_composites['B03'], before_composites['B02']]
+        
+        before_all_uint16_vrt_path = f'{base_dir}/before/all_uint16.vrt'
+        imagery.create_vrt(before_all_band_paths, before_all_uint16_vrt_path)
 
-        after_dict = get_processed_imagery(after_collection, bbox, "after")
-        after_rgb_vrt_path = create_byte_rgb_vrt(after_dict, "after")
-        after_tiles_dir = create_rgb_map_tiles(after_rgb_vrt_path, "after")
+        before_all_uint16_cog_path = f'{base_dir}/before/all_uint16_cog.tif'
+        imagery.create_tif(before_all_uint16_vrt_path, before_all_uint16_cog_path, isCog=True)
 
+        before_rgb_uint16_vrt_path = f'{base_dir}/before/rgb_uint16.vrt'
+        imagery.create_vrt(before_rgb_band_paths, before_rgb_uint16_vrt_path)
 
-        # upload images and tiles
+        before_rgb_byte_vrt_path = f'{base_dir}/before/rgb_byte.vrt'
+        imagery.create_byte_vrt(before_rgb_uint16_vrt_path, before_rgb_byte_vrt_path)
 
-        save_tiles_dir_to_s3(task_uid, before_tiles_dir, 'before')
-        save_tiles_dir_to_s3(task_uid, after_tiles_dir, 'after')
+        before_rgb_byte_cog_path = f'{base_dir}/before/rgb_byte_cog.tif'
+        imagery.create_tif(before_rgb_byte_vrt_path, before_rgb_byte_cog_path, isCog=True)
 
-        for band in before_dict:
-            save_tif_to_s3(task_uid, before_dict[band], "before")
-            save_tif_to_s3(task_uid, after_dict[band], "after")
-
-        # save NDVI
-
-        before_ndvi_path = save_ndvi(before_dict['B04'], before_dict['B08'], "before")
-        after_ndvi_path = save_ndvi(after_dict['B04'], after_dict['B08'], "after")
-
-        save_tif_to_s3(task_uid, before_ndvi_path, "before")
-        save_tif_to_s3(task_uid, after_ndvi_path, "after")
-
-        before_dict["NDVI"] = before_ndvi_path
-        after_dict["NDVI"] = after_ndvi_path
-
-        # "classify" imagery
-
-        before_pred_path = save_forest_classification(before_dict, "before")
-        with rasterio.open(before_pred_path) as forest_src:
-            before_forest = forest_src.read(1, masked=True)
-
-        _plot_and_save(before_forest, '/tmp/before/forest.png', task_uid, "before")
-
-    
-        after_pred_path = save_forest_classification(after_dict, "after")
-        with rasterio.open(after_pred_path) as forest_src:
-            after_forest = forest_src.read(1, masked=True)
-
-        _plot_and_save(after_forest, '/tmp/after/forest.png', task_uid, "after")
+        before_tiles_dir = f'{base_dir}/before/rgb_byte_tiles'
+        imagery.create_map_tiles(before_rgb_byte_vrt_path, before_tiles_dir)
 
 
-        change_path = save_forest_change(before_pred_path, after_pred_path)
-        with rasterio.open(change_path) as change_src:
-            change = change_src.read(1, masked=True)
 
-        _plot_and_save(change, '/tmp/results/change.png', task_uid, "results")
+        # after
 
-        # update results
+        after_composites = download.get_processed_imagery(after_collection, bbox, "after")
+        after_all_band_paths = list(after_composites.values())
+        after_rgb_band_paths = [after_composites['B04'], after_composites['B03'], after_composites['B02']]
+
+        after_all_uint16_vrt_path = f'{base_dir}/after/all_uint16.vrt'
+        imagery.create_vrt(after_all_band_paths, after_all_uint16_vrt_path)
+
+        after_all_uint16_cog_path = f'{base_dir}/after/all_uint16_cog.tif'
+        imagery.create_tif(after_all_uint16_vrt_path, after_all_uint16_cog_path, isCog=True)
+
+        after_rgb_uint16_vrt_path = f'{base_dir}/after/rgb_uint16.vrt'
+        imagery.create_vrt(after_rgb_band_paths, after_rgb_uint16_vrt_path)
+
+        after_rgb_byte_vrt_path = f'{base_dir}/after/rgb_byte.vrt'
+        imagery.create_byte_vrt(after_rgb_uint16_vrt_path, after_rgb_byte_vrt_path)
+
+        after_rgb_byte_cog_path = f'{base_dir}/after/rgb_byte_cog.tif'
+        imagery.create_tif(after_rgb_byte_vrt_path, after_rgb_byte_cog_path, isCog=True)
+
+        after_tiles_dir = f'{base_dir}/after/rgb_byte_tiles'
+        imagery.create_map_tiles(after_rgb_byte_vrt_path, after_tiles_dir)
+
+
+        ### upload assets to S3 ###
+
+        upload.save_task_file_to_s3(before_rgb_byte_cog_path, "before", task_uid)
+        upload.save_task_file_to_s3(before_all_uint16_cog_path, "before", task_uid)
+
+        upload.save_task_file_to_s3(after_rgb_byte_cog_path, "after", task_uid)
+        upload.save_task_file_to_s3(after_all_uint16_cog_path, "after", task_uid)
+
+        upload.save_task_tiles_to_s3(before_tiles_dir, "before", task_uid)
+        upload.save_task_tiles_to_s3(after_tiles_dir, "after", task_uid)
+
+
+
+        ### feature engineering ###
+
+        # NDVI
+
+        before_ndvi_path = f'{base_dir}/before/ndvi.tif'
+        indices.create_ndvi(before_composites['B04'], before_composites['B08'], before_ndvi_path)
+        before_composites['NDVI'] = before_ndvi_path
+
+        after_ndvi_path = f'{base_dir}/after/ndvi.tif'
+        indices.create_ndvi(after_composites['B04'], after_composites['B08'], after_ndvi_path)
+        after_composites['NDVI'] = after_ndvi_path
+
+
+
+        ### model predictions ###
+
+        before_prediction_path = f'{base_dir}/before/forest.tif'
+        prediction.predict_forest(before_composites, before_prediction_path)
+
+        after_prediction_path = f'{base_dir}/after/forest.tif'
+        prediction.predict_forest(after_composites, after_prediction_path)
+
+        change_path = f'{base_dir}/results/change.tif'
+        prediction.predict_forest_change(before_prediction_path, after_prediction_path, change_path)
+
+        change_tiles_dir = f'{base_dir}/results/change_tiles'
+        imagery.create_map_tiles(after_rgb_byte_vrt_path, after_tiles_dir)
+
+
+        
+
+
+        # TODO: create tiles for change
+
+
+
+        # TODO: save and upload...
+
+
+        ### update task in database ###
 
         api.update_forest_change_task_results(task_uid, 100, 80, 520)
+
+        # TODO: update paths to COGs and tiles dir
 
 
     elif task_type == "burn_areas":

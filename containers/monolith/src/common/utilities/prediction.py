@@ -1,22 +1,17 @@
 import numpy as np
 import rasterio
 
+
 from common.constants import NODATA_BYTE, NODATA_INT8
 
 
-def save_forest_classification(band_dict, step):
+def predict_forest(band_dict, dst_path):
 
-    blue_src = rasterio.open(band_dict["B02"])
-    green_src = rasterio.open(band_dict["B03"])
-    red_src = rasterio.open(band_dict["B04"])
-    nir_src = rasterio.open(band_dict["B08"])
-    ndvi_src = rasterio.open(band_dict["NDVI"])
-
-    forest_path = f'/tmp/{step}/forest.tif'
-
-    # super basic placeholder "classifier"
-
-    ndvi_data = ndvi_src.read(1, masked=True)
+    with rasterio.open(band_dict['NDVI']) as ndvi_src:
+        ndvi_data = ndvi_src.read(1, masked=True)
+        meta = ndvi_src.meta.copy()
+        meta['dtype'] = 'int8'
+        meta['nodata'] = NODATA_INT8
 
     is_forest = (ndvi_data > 0.70)
     not_forest = (ndvi_data < 0.30)
@@ -27,23 +22,19 @@ def save_forest_classification(band_dict, step):
     forest_data[ndvi_data.mask] = NODATA_INT8
     forest_data = forest_data.astype(np.int8)
 
-    meta = ndvi_src.meta.copy()
-    meta['dtype'] = 'int8'
-    meta['nodata'] = NODATA_INT8
-    with rasterio.open(forest_path, "w", **meta) as forest_dst:
+    with rasterio.open(dst_path, "w", **meta) as forest_dst:
         forest_dst.write(forest_data, indexes=1)
 
-    return forest_path
 
-
-def save_forest_change(before_path, after_path):
+def predict_forest_change(before_forest_path, after_forest_path, dst_path):
     
-    before_src = rasterio.open(before_path)
-    before_forest = before_src.read(1, masked=True)
+    with rasterio.open(before_forest_path) as before_src:
+        before_forest = before_src.read(1, masked=True)
+        meta = before_src.meta.copy()
 
-    after_src = rasterio.open(after_path)
-    after_forest = after_src.read(1, masked=True)
-    
+    with rasterio.open(after_forest_path) as after_src:
+        after_forest = after_src.read(1, masked=True)
+
     gain = (after_forest - before_forest) > 1.0
     loss = (after_forest - before_forest) < -1.0
 
@@ -53,9 +44,7 @@ def save_forest_change(before_path, after_path):
     change[gain.mask] = NODATA_INT8
     change = change.astype(np.int8)
 
-    meta = after_src.meta.copy()
-    change_path = '/tmp/change.tif'
-    with rasterio.open(change_path, "w", **meta) as change_dst:
+    with rasterio.open(dst_path, "w", **meta) as change_dst:
         change_dst.write(change, indexes=1)
 
-    return change_path
+

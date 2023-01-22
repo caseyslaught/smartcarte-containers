@@ -5,6 +5,7 @@ containers/*/common/
 *collection.json
 *.tif
 *.tiff
+*.vrt
 .aws/
 tiles/
 tmp/

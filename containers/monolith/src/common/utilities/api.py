@@ -46,3 +46,5 @@ def update_forest_change_task_results(task_uid, gain_area, loss_area, total_area
 
     if res.status_code != 200:
         raise ValueError(res.text)
+
+

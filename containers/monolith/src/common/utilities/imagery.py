@@ -1,153 +1,112 @@
 import gdal2tiles
-import glob
 import numpy as np
-import numpy.ma as ma
 import os
 from osgeo import gdal, gdalconst, osr
 import rasterio
 import rasterio.merge
-from rasterio.windows import Window
+import rioxarray
+import shutil
 
-from common.aws import s3 as s3_utils
-from common.constants import NODATA_BYTE, NODATA_UINT16, S3_TASKS_BUCKET
-
-
-BLANK_TIF_PATH = '/tmp/{}/blank.tif'
+from common.constants import NODATA_BYTE, NODATA_UINT16
 
 
 
-def create_byte_rgb_vrt(band_dict, step):
 
-    red = band_dict['B04']
-    green = band_dict['B03']
-    blue = band_dict['B02']
+def create_blank_tif(bbox_poly_ll, dst_dir):
 
-    vrt_path = f'/tmp/{step}/RGB.vrt'
-    print('vrt_path', vrt_path)
-
-    vrt_options = gdal.BuildVRTOptions(separate=True)
-    gdal.BuildVRT(vrt_path, [red, green, blue], options=vrt_options)
-
-    vrt_byte_path = vrt_path.replace('RGB.vrt', 'RGB_Byte.vrt')
-    translate_options = gdal.TranslateOptions(
-        format="VRT", 
-        outputType=gdalconst.GDT_Byte, 
-        scaleParams=[[0, 2000, 0, 255]],
-        noData=NODATA_BYTE
-    )
-    gdal.Translate(vrt_byte_path, vrt_path, options=translate_options)
-
-    return vrt_path
-
-
-def create_rgb_map_tiles(rgb_vrt, step):
-    tiles_dir = f'/tmp/{step}/tiles/'
-    print(f'generating tiles from {rgb_vrt}: {tiles_dir}')
-
-    options = {
-        'kml': True,
-        'nb_processes': 4,
-        'title': 'Smart Carte',
-        'zoom': (2, 12),
-    }
-
-    gdal2tiles.generate_tiles(rgb_vrt, tiles_dir, **options)
-    return tiles_dir
-
-
-def create_blank_tif(bbox_poly_ea, dir_name):
-
-    temp_bounds_ea = bbox_poly_ea.bounds
-    xmin_ea = temp_bounds_ea[0]
-    xmax_ea = temp_bounds_ea[2] 
-    ymin_ea = temp_bounds_ea[1]
-    ymax_ea = temp_bounds_ea[3]
+    bounds = bbox_poly_ll.bounds
+    xmin, xmax = bounds[0], bounds[2] 
+    ymin, ymax = bounds[1], bounds[3]
 
     driver = gdal.GetDriverByName('GTiff')
     spatref = osr.SpatialReference()
-    spatref.ImportFromEPSG(3857)
+    spatref.ImportFromEPSG(4326)
     wkt = spatref.ExportToWkt()
 
-    outfn = BLANK_TIF_PATH.format(dir_name)
+    blank_path = f'{dst_dir}/blank.tif'
     nbands = 1
-    xres_ea = 10
-    yres_ea = -10
+    
+    # FIXME: how does this hold up at higher latitudes?
+    res = 10 / (111.32 * 1000)
+    xres = res  # resx = 10 / (111.32 * 1000) * cos((ymax-ymin)/2)
+    yres = -res
+    
+    transform = [xmin, xres, 0, ymax, 0, yres]
 
     dtype = gdal.GDT_UInt16
 
-    xsize = int(np.rint(np.abs((xmax_ea - xmin_ea)) / xres_ea))
-    ysize = int(np.rint(np.abs((ymax_ea - ymin_ea) / yres_ea)))
+    xsize = int(np.rint(np.abs((xmax - xmin)) / xres))
+    ysize = int(np.rint(np.abs((ymax - ymin) / yres)))
 
-    ds = driver.Create(outfn, xsize, ysize, nbands, dtype, options=['COMPRESS=LZW', 'TILED=YES'])
+    ds = driver.Create(blank_path, xsize, ysize, nbands, dtype, options=['COMPRESS=LZW', 'TILED=YES'])
     ds.SetProjection(wkt)
-    ds.SetGeoTransform([xmin_ea, xres_ea, 0, ymax_ea, 0, yres_ea])
+    ds.SetGeoTransform(transform)
     ds.GetRasterBand(1).Fill(NODATA_UINT16)
     ds.GetRasterBand(1).SetNoDataValue(NODATA_UINT16)
     ds.FlushCache()
     ds = None
+    
+    return blank_path
 
-    return outfn
 
-
-
-def create_composite(band, stack_path, dir_name, method="median"):
+def create_composite(band, stack_path, dst_dir, method="median"):
+    
+    composite_path = f'{dst_dir}/{band}_composite.tif' 
     
     if not os.path.exists(stack_path):
         raise ValueError(f'{stack_path} does not exist')
-
-    with rasterio.open(stack_path) as stack_src:
     
-        width, height = stack_src.width, stack_src.height
-        composite_path = f'/tmp/{dir_name}/{band}_composite.tif'
-        if os.path.exists(composite_path):
-            return composite_path
-        
+    with rasterio.open(stack_path) as stack_src:
+        band_count = stack_src.count
         meta = stack_src.meta.copy()
-        meta.update(count=1) # NOTE: update count if adding variance
+        meta.update(count=1)
         
-        with rasterio.open(composite_path, "w", **meta) as composite_dst:
-            for row in range(height):    
-                chunk = stack_src.read(window=Window(0, row, width, 1), masked=True)
-                centre = np.rint(ma.median(chunk, axis=0)).astype(np.uint16)
-                centre_data = centre.data
-                centre_data[centre.mask] = NODATA_UINT16   
-                composite_dst.write(centre_data, window=Window(0, row, width, 1), indexes=1)
+    stack = rioxarray.open_rasterio(stack_path, chunks=(band_count, 1000, 1000), mask_and_scale=True)
+    
+    centre = stack.median(axis=0, skipna=True)
+    centre = np.rint(centre).astype(np.uint16)
+    centre = centre.compute()
+        
+    with rasterio.open(composite_path, "w", **meta) as composite_dst:
+        composite_dst.write(centre.data, indexes=1)
 
     return composite_path
 
 
 
-def create_stack(band, dir_name):
+def create_band_stack(band_name, tif_paths, dst_dir):
     
-    masked_paths = glob.glob(f'/tmp/{dir_name}/*/{band}_masked.tif')
-    with rasterio.open(masked_paths[0]) as meta_src:
+    with rasterio.open(tif_paths[0]) as meta_src:
         meta = meta_src.meta.copy()
 
-    meta.update(count=len(masked_paths))
+    meta.update(count=len(tif_paths))
 
-    stack_path = f'/tmp/{dir_name}/{band}_stack.tif'
+    stack_path = f'{dst_dir}/{band_name}_stack.tif'
     with rasterio.open(stack_path, 'w', **meta) as stack_dst:
-        for id, layer in enumerate(masked_paths, start=1):
-            with rasterio.open(layer) as band_src:
-                stack_dst.write_band(id, band_src.read(1))
+        for id, layer in enumerate(tif_paths, start=1):
+            with rasterio.open(layer) as lyr_src:
+                stack_dst.write_band(id, lyr_src.read(1))
 
     return stack_path
 
 
-def merge_image_with_blank(image_path, band_name, bbox_poly_ea, dir_name):
 
-    blank_path = BLANK_TIF_PATH.format(dir_name)
+def merge_tif_with_blank(tif_path, blank_path, band_name, bbox_poly_ll, merged_path=None):
+
+    if merged_path is None:
+        merged_path = tif_path.replace(".tif", "_merged.tif")
+    
     with rasterio.open(blank_path) as blank_src:
-        
-        with rasterio.open(image_path) as image_src:
+        with rasterio.open(tif_path) as tif_src:
             
             # if the bounds are the same then just skip merging
-            tbnds, dbnds = blank_src.bounds, image_src.bounds
+            tbnds, dbnds = blank_src.bounds, tif_src.bounds
             if tbnds.left == dbnds.left and tbnds.bottom == dbnds.bottom and \
             tbnds.right == dbnds.right and tbnds.top == dbnds.top:
-                return
+                shutil.copy2(tif_path, merged_path)
+                return merged_path
 
-            merged, transform_ = rasterio.merge.merge([image_src, blank_src], bounds=bbox_poly_ea.bounds)
+            merged, transform_ = rasterio.merge.merge([tif_src, blank_src], bounds=bbox_poly_ll.bounds)
             merged = merged[0, :, :]
 
             merged_profile = blank_src.profile.copy()
@@ -155,43 +114,60 @@ def merge_image_with_blank(image_path, band_name, bbox_poly_ea, dir_name):
                 merged_profile["dtype"] = "uint8"
                 merged_profile["nodata"] = NODATA_BYTE
 
-    with rasterio.open(image_path, "w", **merged_profile) as new_src:
+    with rasterio.open(merged_path, "w", **merged_profile) as new_src:
         new_src.write(merged, 1)
 
-    return image_path
+    return merged_path
 
 
 
-def save_tif_to_s3(task_uid, tif_path, step):
+### VRT and TIF creation ###
 
-    file_name = tif_path.split('/')[-1]
-    object_key = f'{task_uid}/{step}/{file_name}'
-    
-    print(f'uploading {tif_path} to s3://{S3_TASKS_BUCKET}/{object_key}')
+def create_vrt(band_paths, dst_path):
 
-    s3_utils.put_item(tif_path, S3_TASKS_BUCKET, object_key)
+    vrt_options = gdal.BuildVRTOptions(separate=True)
+    gdal.BuildVRT(dst_path, band_paths, options=vrt_options)
 
 
+def create_tif(vrt_path, dst_path, isCog=False):
 
-def save_photo_to_s3(task_uid, photo_path, step):
+    _format = "COG" if isCog else "GTiff"
 
-    file_name = photo_path.split('/')[-1]
-    object_key = f'{task_uid}/{step}/{file_name}'
+    translate_options = gdal.TranslateOptions(
+        format=_format, 
+        noData=NODATA_UINT16,
+    )
 
-    print(f'uploading {photo_path} to s3://{S3_TASKS_BUCKET}/{object_key}')
-
-    s3_utils.put_item(photo_path, S3_TASKS_BUCKET, object_key)
+    gdal.Translate(dst_path, vrt_path, options=translate_options)
 
 
+def create_byte_vrt(full_vrt_path, dst_path):
 
-def save_tiles_dir_to_s3(task_uid, tiles_dir, step):
+    translate_options = gdal.TranslateOptions(
+        format="VRT", 
+        outputType=gdalconst.GDT_Byte, 
+        scaleParams=[[0, 2000, 0, 255]],
+        noData=NODATA_BYTE,
+    )
+    gdal.Translate(dst_path, full_vrt_path, options=translate_options)
 
-    print(f'saving {tiles_dir} to S3')
 
-    for root, dirs, files in os.walk(tiles_dir):
-        for file in files:
-            file_path = os.path.join(root, file)
-            subpath = file_path.replace(tiles_dir, '')
-            object_key = f'{task_uid}/{step}/tiles/{subpath}'
-            
-            s3_utils.put_item(file_path, S3_TASKS_BUCKET, object_key)
+### Map tile creation ###
+
+def create_map_tiles(file_path, tiles_dir):
+
+    # TODO: test whether this works with a TIF and VRT
+
+    print(f'generating tiles from {file_path} to {tiles_dir}/')
+
+    options = {
+        'kml': True,
+        'nb_processes': 4,
+        'title': 'Smart Carte',
+        'zoom': (2, 14),
+    }
+
+    gdal2tiles.generate_tiles(file_path, tiles_dir, **options)
+
+
+
