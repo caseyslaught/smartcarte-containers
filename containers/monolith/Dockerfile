@@ -178,6 +178,7 @@ RUN \
     pip install -r requirements.txt; \
     pip install GDAL==${GDAL_VERSION};
 
+
 FROM sc_monolith_5 as sc_monolith_6
 
 

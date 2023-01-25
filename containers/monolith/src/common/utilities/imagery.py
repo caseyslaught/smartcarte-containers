@@ -6,10 +6,30 @@ import rasterio
 import rasterio.merge
 import rioxarray
 import shutil
+import warnings
 
 from common.constants import NODATA_BYTE, NODATA_UINT16
 
 
+warnings.filterwarnings("ignore", category=RuntimeWarning)
+
+
+### imagery preparation ###
+
+def create_band_stack(band_name, tif_paths, dst_dir):
+    
+    with rasterio.open(tif_paths[0]) as meta_src:
+        meta = meta_src.meta.copy()
+
+    meta.update(count=len(tif_paths))
+
+    stack_path = f'{dst_dir}/{band_name}_stack.tif'
+    with rasterio.open(stack_path, 'w', **meta) as stack_dst:
+        for id, layer in enumerate(tif_paths, start=1):
+            with rasterio.open(layer) as lyr_src:
+                stack_dst.write_band(id, lyr_src.read(1))
+
+    return stack_path
 
 
 def create_blank_tif(bbox_poly_ll, dst_dir):
@@ -26,7 +46,6 @@ def create_blank_tif(bbox_poly_ll, dst_dir):
     blank_path = f'{dst_dir}/blank.tif'
     nbands = 1
     
-    # FIXME: how does this hold up at higher latitudes?
     res = 10 / (111.32 * 1000)
     xres = res  # resx = 10 / (111.32 * 1000) * cos((ymax-ymin)/2)
     yres = -res
@@ -61,7 +80,7 @@ def create_composite(band, stack_path, dst_dir, method="median"):
         meta = stack_src.meta.copy()
         meta.update(count=1)
         
-    stack = rioxarray.open_rasterio(stack_path, chunks=(band_count, 1000, 1000), mask_and_scale=True)
+    stack = rioxarray.open_rasterio(stack_path, chunks=(band_count, 1000, 1000), masked=True)
     
     centre = stack.median(axis=0, skipna=True)
     centre = np.rint(centre).astype(np.uint16)
@@ -71,24 +90,6 @@ def create_composite(band, stack_path, dst_dir, method="median"):
         composite_dst.write(centre.data, indexes=1)
 
     return composite_path
-
-
-
-def create_band_stack(band_name, tif_paths, dst_dir):
-    
-    with rasterio.open(tif_paths[0]) as meta_src:
-        meta = meta_src.meta.copy()
-
-    meta.update(count=len(tif_paths))
-
-    stack_path = f'{dst_dir}/{band_name}_stack.tif'
-    with rasterio.open(stack_path, 'w', **meta) as stack_dst:
-        for id, layer in enumerate(tif_paths, start=1):
-            with rasterio.open(layer) as lyr_src:
-                stack_dst.write_band(id, lyr_src.read(1))
-
-    return stack_path
-
 
 
 def merge_tif_with_blank(tif_path, blank_path, band_name, bbox_poly_ll, merged_path=None):
@@ -152,11 +153,10 @@ def create_byte_vrt(full_vrt_path, dst_path):
     gdal.Translate(dst_path, full_vrt_path, options=translate_options)
 
 
+
 ### Map tile creation ###
 
-def create_map_tiles(file_path, tiles_dir):
-
-    # TODO: test whether this works with a TIF and VRT
+def create_map_tiles(file_path, tiles_dir, min_zoom=2, max_zoom=14):
 
     print(f'generating tiles from {file_path} to {tiles_dir}/')
 
@@ -164,7 +164,7 @@ def create_map_tiles(file_path, tiles_dir):
         'kml': True,
         'nb_processes': 4,
         'title': 'Smart Carte',
-        'zoom': (2, 14),
+        'zoom': (min_zoom, max_zoom),
     }
 
     gdal2tiles.generate_tiles(file_path, tiles_dir, **options)

@@ -1,55 +1,46 @@
 import numpy as np
-import rasterio
-from rasterio.windows import Window
 import rioxarray
 
-from common.constants import NODATA_FLOAT32, NODATA_UINT16
+from common.constants import NODATA_FLOAT32
 
 
 
 def create_ndvi(red_path, nir_path, dst_path):
+    """
+    Calculates and save the Normalized Difference Vegetation Index (NDVI) to disk.
+    """
 
-    red_da = rioxarray.open_rasterio(red_path, chunks=(1, 1000, 1000), mask_and_scale=True)
-    nir_da = rioxarray.open_rasterio(nir_path, chunks=(1, 1000, 1000), mask_and_scale=True)
-    
-    with rasterio.open(red_path) as band_src:
-        meta = band_src.meta.copy()
-        meta['dtype'] = 'float32'
-        meta['nodata'] = NODATA_FLOAT32
+    red_da = rioxarray.open_rasterio(red_path, chunks=(1, 1000, 1000), masked=True)
+    nir_da = rioxarray.open_rasterio(nir_path, chunks=(1, 1000, 1000), masked=True)
 
     ndvi_da = (nir_da.astype(np.float32) - red_da.astype(np.float32)) / (nir_da + red_da)
-    ndvi = ndvi_da.compute()
-
-    with rasterio.open(dst_path, "w", **meta) as composite_dst:
-        composite_dst.write(ndvi.data, indexes=1)
-
-
-
-def save_ndvi_old(red_path, nir_path, step):
-    """"""
-
-    # TODO: use Dask to parallelize this
     
-    red_src = rasterio.open(red_path)
-    nir_src = rasterio.open(nir_path)
+    ndvi_da.rio.to_raster(dst_path, dtype='float32', nodata=NODATA_FLOAT32)
 
-    meta = nir_src.meta.copy()
-    meta['dtype'] = 'float32'
-    meta['nodata'] = NODATA_FLOAT32
-    width, height = nir_src.width, nir_src.height
 
-    ndvi_path = f'/tmp/{step}/ndvi.tif'
-    with rasterio.open(ndvi_path, "w", **meta) as ndvi_dst:
-        for row in range(height):
-            red = red_src.read(1, masked=True, window=Window(0, row, width, 1))
-            nir = nir_src.read(1, masked=True, window=Window(0, row, width, 1))
+def create_ndwi(green_path, nir_path, dst_path):
+    """
+    Calaculates and save the Normalized Difference Water Index (NDWI) to disk.
+    """
+    
+    green_da = rioxarray.open_rasterio(green_path, chunks=(1, 1000, 1000), masked=True)
+    nir_da = rioxarray.open_rasterio(nir_path, chunks=(1, 1000, 1000), masked=True)
 
-            # (NIR-Red) / (NIR+Red)
-            ndvi = (nir.astype(np.float32) - red.astype(np.float32)) / (nir + red)
+    ndwi_da = (green_da.astype(np.float32) - nir_da.astype(np.float32)) / (green_da + nir_da)
+    
+    ndwi_da.rio.to_raster(dst_path, dtype='float32', nodata=NODATA_FLOAT32)
 
-            ndvi[ndvi.mask] = NODATA_FLOAT32 
-            ndvi_dst.write(ndvi, window=Window(0, row, width, 1), indexes=1)
 
-    return ndvi_path
+def create_ndbi(swir1_path, nir_path, dst_path):
+    """
+    Calculates and save the Normalized Difference Built-up Index (NDBI) to disk.
+    """
+        
+    swir1_da = rioxarray.open_rasterio(swir1_path, chunks=(1, 1000, 1000), masked=True)
+    nir_da = rioxarray.open_rasterio(nir_path, chunks=(1, 1000, 1000), masked=True)
+
+    ndbi_da = (swir1_da.astype(np.float32) - nir_da.astype(np.float32)) / (swir1_da + nir_da)
+    
+    ndbi_da.rio.to_raster(dst_path, dtype='float32', nodata=NODATA_FLOAT32)
 
 

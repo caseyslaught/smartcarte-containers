@@ -14,7 +14,7 @@
 ### Monolith
 
 `docker run -it --entrypoint /bin/bash -v %cd%/src:/var/task/src sc_monolith:latest`
-`docker run -it --entrypoint /bin/bash -v %cd%/src:/var/task/src -v %cd%/tmp:/tmp sc_monolith:latest`
+`docker run -it --entrypoint /bin/bash -v %cd%/src:/var/task/src -v %cd%/tmp:/tmp --env-file .env sc_monolith:latest`
 `python handler.py`
 
 ### Notebook
@@ -48,13 +48,3 @@ Tag the image, login, upload the image to ECR, update ECS service - every time.
 ### Location of _src_ directory
 
 /var/task
-
-### Create Slippy tiles
-
-gdalbuildvrt -separate RGB.vrt B04_composite.tif B03_composite.tif B02_composite.tif
-gdal_translate -of VRT -ot Byte -scale RGB.vrt RGB_Byte.vrt
-gdal2tiles.py --zoom=2-14 --exclude RGB_Byte.vrt tiles/
-
---- right now the output RGB VRT is really dark
---- maybe when it gets scaled to byte (255) it loses something
-or the remaining clouds are taking up all the high values

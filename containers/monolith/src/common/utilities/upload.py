@@ -1,7 +1,11 @@
+import os
 
 from common.aws import s3 as s3_utils
-from common.constants import S3_DATA_BUCKET
+from common.constants import DATA_CDN_BASE_URL, S3_DATA_BUCKET
 
+
+def get_tiles_cdn_url(s3_dir):
+    return f'{DATA_CDN_BASE_URL}/{s3_dir}' + '/{z}/{x}/{y}.png',
 
 
 def save_task_file_to_s3(file_path, subdir, task_uid, bucket=S3_DATA_BUCKET):
@@ -10,11 +14,13 @@ def save_task_file_to_s3(file_path, subdir, task_uid, bucket=S3_DATA_BUCKET):
     """
     
     file_name = file_path.split('/')[-1]
-    object_key = f'{task_uid}/{subdir}/{file_name}'
+    object_key = f'tasks/{task_uid}/{subdir}/{file_name}'
 
     print(f'uploading {file_path} to s3://{bucket}/{object_key}')
 
     s3_utils.put_item(file_path, bucket, object_key)
+
+    return object_key
 
 
 
@@ -24,7 +30,7 @@ def save_task_tiles_to_s3(tiles_dir, subdir, task_uid, bucket=S3_DATA_BUCKET):
     """
 
     dir_name = tiles_dir.split('/')[-1]
-    object_base = f'{task_uid}/{subdir}/{dir_name}'
+    object_base = f'tasks/{task_uid}/{subdir}/{dir_name}'
     
     print(f'uploading {tiles_dir} to s3://{bucket}/{object_base}')
 
@@ -32,6 +38,8 @@ def save_task_tiles_to_s3(tiles_dir, subdir, task_uid, bucket=S3_DATA_BUCKET):
         for file in files:
             file_path = os.path.join(root, file)
             sub_path = file_path.replace(tiles_dir, '')
-            object_key = f'{object_base}/{sub_path}'
+            object_key = f'{object_base}{sub_path}'
             s3_utils.put_item(file_path, bucket, object_key)
+
+    return object_base
 
