@@ -94,3 +94,4 @@ venv.bak/
 
 # Cython debug symbols
 cython_debug/
+notebooks/src/common/sagemaker_env.py

@@ -39,7 +39,7 @@ def _get_potential_shadow(cloud_height, azimuth_rad, zenith_rad, cloud_mask, sca
     x_shift = round(np.cos(azimuth_rad) * shadow_vector / scale)
     y_shift = round(np.sin(azimuth_rad) * shadow_vector / scale)
 
-    print('\t\tx_shift:', x_shift, ', y_shift:', y_shift)
+    # print('\t\tx_shift:', x_shift, ', y_shift:', y_shift)
     
     shadows = np.roll(cloud_mask, y_shift, axis=0)
     shadows = np.roll(shadows, x_shift, axis=1)

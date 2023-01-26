@@ -94,14 +94,12 @@ def get_processed_composites(collection, bbox, dst_dir):
         
     masked_scenes_dict = {}
     for scene in og_scenes_dict:
-        print(f'tiffing... {scene}')
         scene_dir = f'{dst_dir}/{scene}'
-        scene_band_paths = [og_scenes_dict[scene][band] for band in S2_BANDS_TIFF_ORDER]       
-        scene_tif_path = f'{scene_dir}/{scene}.tif'
-        print(scene_tif_path)
-        create_scene_cog(scene_band_paths, scene_tif_path)
-        
-        raise
+
+        # print(f'tiffing... {scene}')
+        # scene_band_paths = [og_scenes_dict[scene][band] for band in S2_BANDS_TIFF_ORDER]       
+        # scene_tif_path = f'{scene_dir}/{scene}.tif'
+        # create_scene_cog(scene_band_paths, scene_tif_path)
         
         print(f'masking... {scene}')
         scene_dict = og_scenes_dict[scene]
