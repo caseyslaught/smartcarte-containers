@@ -250,6 +250,7 @@ def handle():
     # update status
 
     update_task_status(task_uid, task_type, "complete")
+    print("complete")
 
 
 
