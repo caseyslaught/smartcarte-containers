@@ -11,6 +11,7 @@ tiles/
 tmp/
 notebooks/data/testing/
 notebooks/src/data/
+roi.json
 
 *.png
 
