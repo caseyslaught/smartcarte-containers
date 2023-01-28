@@ -90,16 +90,16 @@ def get_scene_metadata(href):
 
 def get_processed_composites(collection, bbox, dst_dir):
 
-    og_scenes_dict = __download_original_imagery(collection, bbox, S2_BANDS, dst_dir)
+    og_scenes_dict = download_original_imagery(collection, bbox, S2_BANDS, dst_dir)
         
     masked_scenes_dict = {}
     for scene in og_scenes_dict:
         scene_dir = f'{dst_dir}/{scene}'
 
-        # print(f'tiffing... {scene}')
-        # scene_band_paths = [og_scenes_dict[scene][band] for band in S2_BANDS_TIFF_ORDER]       
-        # scene_tif_path = f'{scene_dir}/{scene}.tif'
-        # create_scene_cog(scene_band_paths, scene_tif_path)
+        print(f'tiffing... {scene}')
+        scene_band_paths = [og_scenes_dict[scene][band] for band in S2_BANDS_TIFF_ORDER]       
+        scene_tif_path = f'{scene_dir}/{scene}.tif'
+        create_scene_cog(scene_band_paths, scene_tif_path)
         
         print(f'masking... {scene}')
         scene_dict = og_scenes_dict[scene]
@@ -121,7 +121,28 @@ def get_processed_composites(collection, bbox, dst_dir):
 
 
 
-def __download_original_imagery(collection, bbox, bands, dst_dir):
+def download_bbox(bbox, cog_url, read_all=False):
+    
+    print('download:', cog_url)
+        
+    with rasterio.open(cog_url) as s3_src:
+
+        window = rasterio.windows.from_bounds(
+            bbox[0], bbox[1], 
+            bbox[2], bbox[3], 
+            transform=s3_src.transform
+        )
+        
+        if read_all:
+            s3_data = s3_src.read(masked=True, window=window).astype(np.uint16)
+        else:
+            s3_data = s3_src.read(1, masked=True, window=window).astype(np.uint16)
+    
+    return s3_data
+    
+    
+
+def download_original_imagery(collection, bbox, bands, dst_dir):
 
     bbox_poly_ll = box(*bbox)
 
@@ -140,7 +161,8 @@ def __download_original_imagery(collection, bbox, bands, dst_dir):
         item_epsg = f'EPSG:{item.properties["proj:epsg"]}'
         bbox_sw_utm = reproject_shape(Point(bbox[0], bbox[1]), init_proj="EPSG:4326", target_proj=item_epsg)
         bbox_ne_utm = reproject_shape(Point(bbox[2], bbox[3]), init_proj="EPSG:4326", target_proj=item_epsg)
-        
+        bbox_utm = [bbox_sw_utm.x, bbox_sw_utm.y, bbox_ne_utm.x, bbox_ne_utm.y]
+
         # get intersection of bbox and S2 scene for windowed read
         scene_poly_ll = shape(item.geometry) # Polygon of the entire original image
         overlap_poly_ll = bbox_poly_ll.intersection(scene_poly_ll)
@@ -162,44 +184,36 @@ def __download_original_imagery(collection, bbox, bands, dst_dir):
                 scenes_dict[item.id][band_name] = merged_path
                 continue
 
-            with rasterio.open(s3_href) as s3_src:
-
-                window = rasterio.windows.from_bounds(
-                    bbox_sw_utm.x, bbox_sw_utm.y, 
-                    bbox_ne_utm.x, bbox_ne_utm.y, 
-                    transform=s3_src.transform
-                )
-
-                s3_data = s3_src.read(1, window=window).astype(np.uint16)
+            s3_data = download_bbox(bbox_utm, s3_href)
                 
-                height, width = s3_data.shape[0], s3_data.shape[1]
+            height, width = s3_data.shape[0], s3_data.shape[1]
 
-                new_transform = rasterio.transform.from_bounds(
-                    overlap_bbox_ll[0], overlap_bbox_ll[1], 
-                    overlap_bbox_ll[2], overlap_bbox_ll[3], 
-                    width, height
-                )
-                                
-                kwargs = {
-                    "driver": "GTiff",
-                    "height": height,
-                    "width": width,
-                    "count": 1,
-                    "dtype": np.uint16, # s3_data.dtype,
-                    "crs": rasterio.crs.CRS.from_epsg(4326),
-                    "transform": new_transform
-                }
-                                
-                kwargs["nodata"] = NODATA_BYTE if band_name == "SCL" else NODATA_UINT16
+            new_transform = rasterio.transform.from_bounds(
+                overlap_bbox_ll[0], overlap_bbox_ll[1], 
+                overlap_bbox_ll[2], overlap_bbox_ll[3], 
+                width, height
+            )
 
-                with rasterio.open(band_path, "w", **kwargs) as new_src:
-                    new_src.write(s3_data, 1)
+            kwargs = {
+                "driver": "GTiff",
+                "height": height,
+                "width": width,
+                "count": 1,
+                "dtype": np.uint16, # s3_data.dtype,
+                "crs": rasterio.crs.CRS.from_epsg(4326),
+                "transform": new_transform
+            }
 
-                res = 10 / (111.32 * 1000)
-                gdal.Warp(band_path, band_path, xRes=res, yRes=res, outputBounds=overlap_poly_ll.bounds)
-                
-                merged_path = merge_tif_with_blank(band_path, blank_path, band_name, bbox_poly_ll, merged_path=merged_path)
-                scenes_dict[item.id][band_name] = merged_path
+            kwargs["nodata"] = NODATA_BYTE if band_name == "SCL" else NODATA_UINT16
+
+            with rasterio.open(band_path, "w", **kwargs) as new_src:
+                new_src.write(s3_data, 1)
+
+            res = 10 / (111.32 * 1000)
+            gdal.Warp(band_path, band_path, xRes=res, yRes=res, outputBounds=overlap_poly_ll.bounds)
+
+            merged_path = merge_tif_with_blank(band_path, blank_path, band_name, bbox_poly_ll, merged_path=merged_path)
+            scenes_dict[item.id][band_name] = merged_path
 
     return scenes_dict
             
