@@ -32,8 +32,10 @@ def create_band_stack(band_name, tif_paths, dst_dir):
     return stack_path
 
 
-def create_blank_tif(bbox_poly_ll, dst_dir):
+def create_blank_tif(bbox_poly_ll, dst_dir=None, dst_path=None, dtype=gdal.GDT_UInt16, nodata=NODATA_UINT16):
 
+    assert dst_dir is not None or dst_path is not None
+    
     bounds = bbox_poly_ll.bounds
     xmin, xmax = bounds[0], bounds[2] 
     ymin, ymax = bounds[1], bounds[3]
@@ -43,7 +45,9 @@ def create_blank_tif(bbox_poly_ll, dst_dir):
     spatref.ImportFromEPSG(4326)
     wkt = spatref.ExportToWkt()
 
-    blank_path = f'{dst_dir}/blank.tif'
+    if dst_path is None:
+        dst_path = f'{dst_dir}/blank.tif'
+    
     nbands = 1
     
     res = 10 / (111.32 * 1000)
@@ -52,20 +56,18 @@ def create_blank_tif(bbox_poly_ll, dst_dir):
     
     transform = [xmin, xres, 0, ymax, 0, yres]
 
-    dtype = gdal.GDT_UInt16
-
     xsize = int(np.rint(np.abs((xmax - xmin)) / xres))
     ysize = int(np.rint(np.abs((ymax - ymin) / yres)))
 
-    ds = driver.Create(blank_path, xsize, ysize, nbands, dtype, options=['COMPRESS=LZW', 'TILED=YES'])
+    ds = driver.Create(dst_path, xsize, ysize, nbands, dtype, options=['COMPRESS=LZW', 'TILED=YES'])
     ds.SetProjection(wkt)
     ds.SetGeoTransform(transform)
-    ds.GetRasterBand(1).Fill(NODATA_UINT16)
-    ds.GetRasterBand(1).SetNoDataValue(NODATA_UINT16)
+    ds.GetRasterBand(1).Fill(nodata)
+    ds.GetRasterBand(1).SetNoDataValue(nodata)
     ds.FlushCache()
     ds = None
     
-    return blank_path
+    return dst_path
 
 
 def create_composite(band, stack_path, dst_dir, method="median"):
@@ -163,7 +165,38 @@ def create_byte_vrt(full_vrt_path, dst_path):
     )
     gdal.Translate(dst_path, full_vrt_path, options=translate_options)
 
+   
+    
+def write_array_to_tif(data, dst_path, bbox, dtype=np.uint16):
+        
+    height, width = data.shape[0], data.shape[1]
 
+    new_transform = rasterio.transform.from_bounds(
+        bbox[0], bbox[1], 
+        bbox[2], bbox[3], 
+        width, height
+    )
+    
+    count = 1 if data.ndim == 2 else data.shape[2]
+    
+    meta = {
+        "driver": "GTiff",
+        "height": height,
+        "width": width,
+        "count": count,
+        "dtype": dtype,
+        "crs": rasterio.crs.CRS.from_epsg(4326),
+        "transform": new_transform
+    }
+       
+    with rasterio.open(dst_path, "w", **meta) as dst:
+        if count == 1:
+            dst.write(data, indexes=1)
+        else:
+            for i in range(count):
+                dst.write(data[:, :, i], indexes=i+1)
+
+        
 
 ### Map tile creation ###
 

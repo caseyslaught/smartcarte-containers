@@ -12,6 +12,11 @@ tmp/
 notebooks/data/testing/
 notebooks/src/data/
 roi.json
+venvnn/
+data/
+lightning_logs/
+testing
+dep
 
 *.png
 

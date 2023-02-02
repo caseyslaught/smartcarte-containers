@@ -1,7 +1,0 @@
-[
-  {
-    "min_zoom": 10,
-    "max_zoom": 16,
-    "tile_layer_url": "https://data.smartcarte.earth/training/20220401_20220601_central/20220401_20220601_central_rgb.tif"
-  }
-]

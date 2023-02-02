@@ -19,9 +19,17 @@
 
 ### Notebook
 
-#### make sure in notebooks/
+#### run Jupyter Notebook in browser
 
 `docker run -p 8888:8888 -v %cd%/src:/home/src -v %cd%/data:/home/src/data sc_notebook:latest`
+
+#### develop with VSCode
+
+`docker run -p 8888:8888 -it --entrypoint /bin/bash -v %cd%/src:/home/src -v %cd%/data:/home/src/data sc_notebook:latest`
+`startJupyter.bat` or `startBash.bat`
+
+- Then click the button in very bottom right and click _Attach to running container_
+- Then develop in the new container that pops up.
 
 ## Deploying everything to ECS
 

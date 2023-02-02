@@ -122,9 +122,7 @@ def get_processed_composites(collection, bbox, dst_dir):
 
 
 def download_bbox(bbox, cog_url, read_all=False):
-    
-    print('download:', cog_url)
-        
+            
     with rasterio.open(cog_url) as s3_src:
 
         window = rasterio.windows.from_bounds(
