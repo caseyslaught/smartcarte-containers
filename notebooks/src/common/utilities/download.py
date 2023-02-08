@@ -11,8 +11,8 @@ from shapely.geometry import box, shape, Point
 import xml.etree.ElementTree as ET
 
 from common.exceptions import EmptyCollectionException, IncompleteCoverageException, NotEnoughItemsException
-from common.constants import NODATA_BYTE, NODATA_FLOAT64, NODATA_UINT16, S2_BANDS, S2_BANDS_TIFF_ORDER
-from common.utilities.imagery import create_band_stack, create_blank_tif, create_composite, create_scene_cog, merge_tif_with_blank, normalize_s3_image, write_array_to_tif
+from common.constants import NODATA_BYTE, NODATA_FLOAT32, NODATA_UINT16, S2_BANDS, S2_BANDS_TIFF_ORDER
+from common.utilities.imagery import create_band_stack, create_blank_tif, create_composite, create_composite_from_paths, create_scene_cog, create_tif_from_vrt, create_vrt, merge_tif_with_blank, normalize_s3_image, write_array_to_tif
 from common.utilities.masking import save_cloud_masked_images
 from common.utilities.projections import get_collection_bbox_coverage, reproject_shape
 
@@ -91,36 +91,25 @@ def get_scene_metadata(href):
 
 def get_processed_composites(collection, bbox, dst_dir):
 
-    og_scenes_dict = download_original_imagery(collection, bbox, S2_BANDS, dst_dir)
+    merged_scenes = download_original_imagery(collection, bbox, S2_BANDS_TIFF_ORDER, dst_dir)
+    
+    masked_scenes = {}
+    for scene in merged_scenes:
+        print('masking', scene)
         
-    raise
-        
-    masked_scenes_dict = {}
-    for scene in og_scenes_dict:
         scene_dir = f'{dst_dir}/{scene}'
-
-        print(f'tiffing... {scene}')
-        scene_band_paths = [og_scenes_dict[scene][band] for band in S2_BANDS_TIFF_ORDER]       
-        scene_tif_path = f'{scene_dir}/{scene}.tif'
-        create_scene_cog(scene_band_paths, scene_tif_path)
+        meta = merged_scenes[scene]['meta']
+        stack_tif_path = merged_scenes[scene]['stack_tif_path']
         
-        print(f'masking... {scene}')
-        scene_dict = og_scenes_dict[scene]
-        masked_scenes_dict[scene] = save_cloud_masked_images(scene_dict, scene_dir)  
-        
-    composite_dict = {}
-    for band in S2_BANDS:
-        if band == "SCL": continue
+        masked_tif_path = f'{dst_dir}/{scene}/stack_masked.tif'
+        save_cloud_masked_images(stack_tif_path, meta, masked_tif_path, overwrite=False)
+        masked_scenes[scene] = masked_tif_path
 
-        print(f'stacking... {band}')
-        masked_paths = [masked_scenes_dict[scene][band] for scene in masked_scenes_dict]
-        stack_path = create_band_stack(band, masked_paths, dst_dir)
-        
-        print(f'compositing... {band}')
-        composite_path = create_composite(band, stack_path, dst_dir, method="median")        
-        composite_dict[band] = composite_path
-
-    return composite_dict
+    composite_path = f'{dst_dir}/composite.tif'
+    merged_tif_paths = list(masked_scenes.values())    
+    create_composite_from_paths(merged_tif_paths, composite_path)
+    
+    return composite_path
 
 
 
@@ -144,27 +133,22 @@ def download_bbox(bbox, cog_url, read_all=False):
     return s3_data
     
     
-    
-import matplotlib.pyplot as plt
-
 
 def download_original_imagery(collection, bbox, bands, dst_dir):
 
     bbox_poly_ll = box(*bbox)
 
-    blank_float64_path = f'{dst_dir}/blank_float64.tif'
-    create_blank_tif(bbox_poly_ll, dst_path=blank_float64_path, dtype=gdal.GDT_Float64, nodata=NODATA_FLOAT64)
+    blank_float32_path = f'{dst_dir}/blank_float32.tif'
+    create_blank_tif(bbox_poly_ll, dst_path=blank_float32_path, dtype=gdal.GDT_Float32, nodata=NODATA_FLOAT32)
     
-    blank_byte_path = f'{dst_dir}/blank_byte.tif'
-    create_blank_tif(bbox_poly_ll, dst_path=blank_byte_path, dtype=gdal.GDT_Byte, nodata=NODATA_BYTE)
-
-    scenes_dict = {}
+    scenes = {}
     for item in list(collection):
-        print(f'downloading... {item.id}')
         
-        scenes_dict[item.id] = {}
+        print(f'downloading... {item.id}')
+
+        scenes[item.id] = {}
         band_hrefs = [item.assets[band].href for band in bands]
-        scenes_dict[item.id]['meta'] = get_scene_metadata(item.assets['metadata'].href)
+        scenes[item.id]['meta'] = get_scene_metadata(item.assets['metadata'].href)
         
         # reproject bbox into UTM of S2 item 
         item_epsg = f'EPSG:{item.properties["proj:epsg"]}'
@@ -182,107 +166,52 @@ def download_original_imagery(collection, bbox, bands, dst_dir):
         scene_dir = f'{dst_dir}/{item.id}'
         if not os.path.exists(scene_dir):
             os.mkdir(scene_dir)
-            
-        all_band_data = {}
-
+        
+        stack_tif_path = f'{scene_dir}/stack.tif'    
+        if os.path.exists(stack_tif_path):
+            scenes[item.id]['stack_tif_path'] = stack_tif_path
+            continue
+        
+        merged_tif_paths = []
         for s3_href in band_hrefs:
-            
+                        
             band_name = s3_href.split('/')[-1].split('.')[0]
             band_path = f'{scene_dir}/{band_name}.tif'
             merged_path = f'{scene_dir}/{band_name}_merged.tif'
-
-            #if os.path.exists(merged_path):
-            #    scenes_dict[item.id][band_name] = merged_path
-            #    continue
-
+            
+            if os.path.exists(merged_path):
+                merged_tif_paths.append(merged_path)
+                continue
+            
             s3_data = download_bbox(bbox_utm, s3_href)
-            # DON'T NORMALIZE BEFORE MASKING... s3_data = normalize_s3_image(s3_data)
-                        
-            if band_name in ["B02", "B03", "B04", "B08"]:
-                blank_path = blank_float64_path
-                dtype = np.float64
+            write_array_to_tif(s3_data.astype(np.float32), band_path, overlap_bbox_ll, dtype=np.float32, nodata=NODATA_FLOAT32)
             
-            else:
-                if band_name == "SCL":
-                    blank_path = blank_byte_path
-                    dtype = np.uint8
-                    nodata = NODATA_BYTE
-                elif band_name in ["B05", "B06", "B07", "B8A", "B11", "B12"]:   
-                    blank_path = blank_float64_path
-                    dtype = np.float64
-                    nodata = NODATA_FLOAT64
-                else:
-                    raise ValueError("unknown band")
-  
-                temp_band_path = f"{dst_dir}/temp.tif"
-                write_array_to_tif(s3_data, temp_band_path, overlap_bbox_ll, dtype=s3_data.dtype, nodata=nodata)
-                                
-                res = 10 / (111.32 * 1000)
-                gdal.Warp(temp_band_path, temp_band_path, xRes=res, yRes=res, outputBounds=overlap_bbox_ll)
+            if band_name not in ["B02", "B03", "B04", "B08"]:
+                res = 10 / (111.32 * 1000)            
+                gdal.Warp(band_path, band_path, xRes=res, yRes=res, outputBounds=overlap_bbox_ll)
+
+            merge_tif_with_blank(band_path, blank_float32_path, band_name, bbox, merged_path=merged_path)
+            merged_tif_paths.append(merged_path)
+        
+
+        """
+        vrt_path = f'{dst_dir}/temp.vrt'
+        create_vrt(merged_tif_paths, vrt_path)
+        create_tif_from_vrt(vrt_path, stack_tif_path, isCog=True)
+        os.remove(vrt_path)
+        """
+        
+        stack_data = []
+        for path in merged_tif_paths:
+            with rasterio.open(path) as src:
+                stack_data.append(src.read(1))
                 
-                with rasterio.open(temp_band_path) as temp_src:
-                    s3_data = temp_src.read(1)
-
-            blank_src = rasterio.open(blank_path)            
-            merged_data = np.full(blank_src.shape, nodata).astype(dtype)
-            
-            #print("s3_data.shape:", s3_data.shape)
-            #print("blank_src.shape:", blank_src.shape)
-            #print("blank_data.shape:", blank_data.shape)
-
-            row_min, col_min = blank_src.index(overlap_bbox_ll[0], overlap_bbox_ll[3], op=math.floor)
-            row_max, col_max = blank_src.index(overlap_bbox_ll[2], overlap_bbox_ll[1], op=math.ceil)
-            
-            #print("row_min, row_max:", row_min, row_max)
-            #print("col_min, col_max:", col_min, col_max)
-            #target_area = blank_data[row_min:row_max, col_min:col_max]
-            #print("target_area.shape:", target_area.shape)
-            
-            merged_data[row_min:row_max, col_min:col_max] = s3_data
-
-            all_band_data[band_name] = merged_data
-            # TODO: can do similar system to labels merging with s3_data and blank tif
-            # TODO: by using index to lookup row/col offset
-            
-            
-                
-                
-            """
-            height, width = s3_data.shape[0], s3_data.shape[1]
-
-            new_transform = rasterio.transform.from_bounds(
-                overlap_bbox_ll[0], overlap_bbox_ll[1], 
-                overlap_bbox_ll[2], overlap_bbox_ll[3], 
-                width, height
-            )
-
-            kwargs = {
-                "driver": "GTiff",
-                "height": height,
-                "width": width,
-                "count": 1,
-                "dtype": np.float64, # s3_data.dtype, # TODO: change this to np.uint8 after normalizing to 0-255
-                "crs": rasterio.crs.CRS.from_epsg(4326),
-                "transform": new_transform
-            }
-            
-            if band_name == "SCL":
-                blank_path = blank_byte_path
-                kwargs["nodata"] = NODATA_BYTE
-            else:
-                blank_path = blank_float64_path
-                kwargs["nodata"] = NODATA_FLOAT64
-            
-            with rasterio.open(band_path, "w", **kwargs) as new_src:
-                new_src.write(s3_data, 1)
-
-            res = 10 / (111.32 * 1000)
-            gdal.Warp(band_path, band_path, xRes=res, yRes=res, outputBounds=overlap_poly_ll.bounds)
-
-            # TODO: if using Byte then update blank
-            merged_path = merge_tif_with_blank(band_path, blank_path, band_name, bbox_poly_ll, merged_path=merged_path)
-            scenes_dict[item.id][band_name] = merged_path
-            """
-            
-    return scenes_dict
-            
+        stack_data = np.array(stack_data).transpose((1, 2, 0))
+        write_array_to_tif(np.array(stack_data), stack_tif_path, bbox, dtype=np.float32, nodata=NODATA_FLOAT32) 
+        scenes[item.id]['stack_tif_path'] = stack_tif_path
+        
+        for merged_path in merged_tif_paths:
+            os.remove(merged_path)
+        
+        
+    return scenes
