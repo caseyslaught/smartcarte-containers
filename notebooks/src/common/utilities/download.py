@@ -1,3 +1,4 @@
+import math
 import numpy as np
 import os
 from osgeo import gdal
@@ -10,8 +11,8 @@ from shapely.geometry import box, shape, Point
 import xml.etree.ElementTree as ET
 
 from common.exceptions import EmptyCollectionException, IncompleteCoverageException, NotEnoughItemsException
-from common.constants import NODATA_BYTE, NODATA_UINT16, S2_BANDS, S2_BANDS_TIFF_ORDER
-from common.utilities.imagery import create_band_stack, create_blank_tif, create_composite, create_scene_cog, merge_tif_with_blank
+from common.constants import NODATA_BYTE, NODATA_FLOAT64, NODATA_UINT16, S2_BANDS, S2_BANDS_TIFF_ORDER
+from common.utilities.imagery import create_band_stack, create_blank_tif, create_composite, create_scene_cog, merge_tif_with_blank, normalize_s3_image, write_array_to_tif
 from common.utilities.masking import save_cloud_masked_images
 from common.utilities.projections import get_collection_bbox_coverage, reproject_shape
 
@@ -92,6 +93,8 @@ def get_processed_composites(collection, bbox, dst_dir):
 
     og_scenes_dict = download_original_imagery(collection, bbox, S2_BANDS, dst_dir)
         
+    raise
+        
     masked_scenes_dict = {}
     for scene in og_scenes_dict:
         scene_dir = f'{dst_dir}/{scene}'
@@ -131,6 +134,8 @@ def download_bbox(bbox, cog_url, read_all=False):
             transform=s3_src.transform
         )
         
+        # TODO: get dtype of s3_src and use in astype
+
         if read_all:
             s3_data = s3_src.read(masked=True, window=window).astype(np.uint16)
         else:
@@ -139,20 +144,26 @@ def download_bbox(bbox, cog_url, read_all=False):
     return s3_data
     
     
+    
+import matplotlib.pyplot as plt
+
 
 def download_original_imagery(collection, bbox, bands, dst_dir):
 
     bbox_poly_ll = box(*bbox)
 
-    blank_path = create_blank_tif(bbox_poly_ll, dst_dir)
+    blank_float64_path = f'{dst_dir}/blank_float64.tif'
+    create_blank_tif(bbox_poly_ll, dst_path=blank_float64_path, dtype=gdal.GDT_Float64, nodata=NODATA_FLOAT64)
+    
+    blank_byte_path = f'{dst_dir}/blank_byte.tif'
+    create_blank_tif(bbox_poly_ll, dst_path=blank_byte_path, dtype=gdal.GDT_Byte, nodata=NODATA_BYTE)
 
     scenes_dict = {}
     for item in list(collection):
         print(f'downloading... {item.id}')
+        
         scenes_dict[item.id] = {}
-
         band_hrefs = [item.assets[band].href for band in bands]
-
         scenes_dict[item.id]['meta'] = get_scene_metadata(item.assets['metadata'].href)
         
         # reproject bbox into UTM of S2 item 
@@ -172,18 +183,71 @@ def download_original_imagery(collection, bbox, bands, dst_dir):
         if not os.path.exists(scene_dir):
             os.mkdir(scene_dir)
             
+        all_band_data = {}
+
         for s3_href in band_hrefs:
             
             band_name = s3_href.split('/')[-1].split('.')[0]
             band_path = f'{scene_dir}/{band_name}.tif'
             merged_path = f'{scene_dir}/{band_name}_merged.tif'
 
-            if os.path.exists(merged_path):
-                scenes_dict[item.id][band_name] = merged_path
-                continue
+            #if os.path.exists(merged_path):
+            #    scenes_dict[item.id][band_name] = merged_path
+            #    continue
 
             s3_data = download_bbox(bbox_utm, s3_href)
+            # DON'T NORMALIZE BEFORE MASKING... s3_data = normalize_s3_image(s3_data)
+                        
+            if band_name in ["B02", "B03", "B04", "B08"]:
+                blank_path = blank_float64_path
+                dtype = np.float64
+            
+            else:
+                if band_name == "SCL":
+                    blank_path = blank_byte_path
+                    dtype = np.uint8
+                    nodata = NODATA_BYTE
+                elif band_name in ["B05", "B06", "B07", "B8A", "B11", "B12"]:   
+                    blank_path = blank_float64_path
+                    dtype = np.float64
+                    nodata = NODATA_FLOAT64
+                else:
+                    raise ValueError("unknown band")
+  
+                temp_band_path = f"{dst_dir}/temp.tif"
+                write_array_to_tif(s3_data, temp_band_path, overlap_bbox_ll, dtype=s3_data.dtype, nodata=nodata)
+                                
+                res = 10 / (111.32 * 1000)
+                gdal.Warp(temp_band_path, temp_band_path, xRes=res, yRes=res, outputBounds=overlap_bbox_ll)
                 
+                with rasterio.open(temp_band_path) as temp_src:
+                    s3_data = temp_src.read(1)
+
+            blank_src = rasterio.open(blank_path)            
+            merged_data = np.full(blank_src.shape, nodata).astype(dtype)
+            
+            #print("s3_data.shape:", s3_data.shape)
+            #print("blank_src.shape:", blank_src.shape)
+            #print("blank_data.shape:", blank_data.shape)
+
+            row_min, col_min = blank_src.index(overlap_bbox_ll[0], overlap_bbox_ll[3], op=math.floor)
+            row_max, col_max = blank_src.index(overlap_bbox_ll[2], overlap_bbox_ll[1], op=math.ceil)
+            
+            #print("row_min, row_max:", row_min, row_max)
+            #print("col_min, col_max:", col_min, col_max)
+            #target_area = blank_data[row_min:row_max, col_min:col_max]
+            #print("target_area.shape:", target_area.shape)
+            
+            merged_data[row_min:row_max, col_min:col_max] = s3_data
+
+            all_band_data[band_name] = merged_data
+            # TODO: can do similar system to labels merging with s3_data and blank tif
+            # TODO: by using index to lookup row/col offset
+            
+            
+                
+                
+            """
             height, width = s3_data.shape[0], s3_data.shape[1]
 
             new_transform = rasterio.transform.from_bounds(
@@ -197,21 +261,28 @@ def download_original_imagery(collection, bbox, bands, dst_dir):
                 "height": height,
                 "width": width,
                 "count": 1,
-                "dtype": np.uint16, # s3_data.dtype,
+                "dtype": np.float64, # s3_data.dtype, # TODO: change this to np.uint8 after normalizing to 0-255
                 "crs": rasterio.crs.CRS.from_epsg(4326),
                 "transform": new_transform
             }
-
-            kwargs["nodata"] = NODATA_BYTE if band_name == "SCL" else NODATA_UINT16
-
+            
+            if band_name == "SCL":
+                blank_path = blank_byte_path
+                kwargs["nodata"] = NODATA_BYTE
+            else:
+                blank_path = blank_float64_path
+                kwargs["nodata"] = NODATA_FLOAT64
+            
             with rasterio.open(band_path, "w", **kwargs) as new_src:
                 new_src.write(s3_data, 1)
 
             res = 10 / (111.32 * 1000)
             gdal.Warp(band_path, band_path, xRes=res, yRes=res, outputBounds=overlap_poly_ll.bounds)
 
+            # TODO: if using Byte then update blank
             merged_path = merge_tif_with_blank(band_path, blank_path, band_name, bbox_poly_ll, merged_path=merged_path)
             scenes_dict[item.id][band_name] = merged_path
-
+            """
+            
     return scenes_dict
             
