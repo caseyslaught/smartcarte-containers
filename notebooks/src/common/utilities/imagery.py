@@ -95,13 +95,8 @@ def create_composite(band, stack_path, dst_dir, method="median"):
     return composite_path
 
             
-import matplotlib.pyplot as plt
-
             
-def create_composite_from_paths(tif_paths, dst_path, nodata=NODATA_FLOAT32, overwrite=False):
-    
-    if os.path.exists(dst_path) and not overwrite:
-         return
+def create_composite_from_paths(tif_paths, dst_path, nodata=NODATA_FLOAT32):
     
     with rasterio.open(tif_paths[0]) as src:
         band_count = src.count
@@ -112,7 +107,6 @@ def create_composite_from_paths(tif_paths, dst_path, nodata=NODATA_FLOAT32, over
         
         batch_size = 600
         for row in np.arange(0, nrows, batch_size):
-            #print(row)
             
             bsize = nrows - row if row + batch_size > nrows else batch_size
             window = Window(0, row, ncols, bsize)
@@ -132,6 +126,7 @@ def create_composite_from_paths(tif_paths, dst_path, nodata=NODATA_FLOAT32, over
                 dst.write(masked_data, indexes=i+1, window=window)
                     
 
+                    
 def merge_tif_with_blank(tif_path, blank_path, band_name, bbox_ll, merged_path=None):
 
     if merged_path is None:
@@ -151,9 +146,6 @@ def merge_tif_with_blank(tif_path, blank_path, band_name, bbox_ll, merged_path=N
             merged = merged[0, :, :]
 
             merged_profile = blank_src.profile.copy()
-            #if band_name == "SCL":
-            #    merged_profile["dtype"] = "uint8"
-            #    merged_profile["nodata"] = NODATA_BYTE
 
     with rasterio.open(merged_path, "w", **merged_profile) as new_src:
         new_src.write(merged, 1)
@@ -271,10 +263,14 @@ def write_array_to_tif(data, dst_path, bbox, dtype=np.float32, nodata=NODATA_FLO
             dst.write(data, indexes=1)
         else:
             for i in range(count):
-                band_data = data[:, :, i]         
-                masked_data = band_data.data
-                masked_data[band_data.mask] = nodata
-                dst.write(masked_data, indexes=i+1)
+                band_data = data[:, :, i]
+                
+                if np.ma.is_masked(band_data):
+                    mask = band_data.mask
+                    band_data = band_data.data
+                    band_data[mask] = nodata
+                    
+                dst.write(band_data, indexes=i+1)
 
 
 ### Map tile creation ###

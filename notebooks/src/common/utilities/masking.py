@@ -39,8 +39,6 @@ def _get_potential_shadow(cloud_height, azimuth_rad, zenith_rad, cloud_mask, sca
         
     x_shift = round(np.cos(azimuth_rad) * shadow_vector / scale)
     y_shift = round(np.sin(azimuth_rad) * shadow_vector / scale)
-
-    # print('\t\tx_shift:', x_shift, ', y_shift:', y_shift)
     
     shadows = np.roll(cloud_mask, y_shift, axis=0)
     shadows = np.roll(shadows, x_shift, axis=1)
@@ -112,10 +110,7 @@ def _get_bcy_cloud_mask(green, red):
 
 ### cloud masking coordinator ###
 
-def apply_cloud_mask_and_normalize(stack_tif_path, meta, dst_path, overwrite=True):
-        
-    if os.path.exists(dst_path) and not overwrite:
-        return dst_path
+def apply_cloud_mask_and_normalize(stack_tif_path, meta, dst_path):
      
     with rasterio.open(stack_tif_path) as src:
         stack_data = src.read(masked=True)
@@ -141,18 +136,12 @@ def apply_cloud_mask_and_normalize(stack_tif_path, meta, dst_path, overwrite=Tru
     
     # apply full mask to stack
     full_mask = stack_data.mask | mask    
-    stack_data.mask = full_mask
-    
-    print(stack_data.shape)
+    stack_data.mask = full_mask    
     stack_data = stack_data[:-1, :, :]
-    print(stack_data.shape)
     
     # normalize
     norm_data = normalize_3d_array(stack_data)
-    print(norm_data.shape)
-
-    norm_data = norm_data[:-1, :, :].transpose((1, 2, 0))
-    print(norm_data.shape)
+    norm_data = norm_data.transpose((1, 2, 0))
 
     write_array_to_tif(norm_data, dst_path, bbox, dtype=np.float32, nodata=NODATA_FLOAT32)
     

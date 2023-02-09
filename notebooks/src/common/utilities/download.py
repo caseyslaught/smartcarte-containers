@@ -91,6 +91,10 @@ def get_scene_metadata(href):
 
 def get_processed_composite(collection, bbox, dst_dir):
 
+    composite_path = f'{dst_dir}/composite.tif'
+    if os.path.exists(composite_path):
+        return composite_path
+    
     merged_scenes = download_collection(collection, bbox, S2_BANDS_TIFF_ORDER, dst_dir)
     
     masked_scenes = {}
@@ -102,18 +106,16 @@ def get_processed_composite(collection, bbox, dst_dir):
         stack_tif_path = merged_scenes[scene]['stack_tif_path']
         masked_tif_path = f'{dst_dir}/{scene}/stack_masked.tif'
         
-        apply_cloud_mask_and_normalize(stack_tif_path, meta, masked_tif_path, overwrite=True)
+        apply_cloud_mask_and_normalize(stack_tif_path, meta, masked_tif_path)
+        
         masked_scenes[scene] = masked_tif_path
         
-        #if os.path.exists(stack_tif_path):
-        #    os.remove(stack_tif_path)
-
+        if os.path.exists(stack_tif_path):
+            os.remove(stack_tif_path)
             
     print('\tcompositing...')
-    composite_path = f'{dst_dir}/composite.tif'
     merged_tif_paths = list(masked_scenes.values())    
-    print(merged_tif_paths)
-    create_composite_from_paths(merged_tif_paths, composite_path, overwrite=True)
+    create_composite_from_paths(merged_tif_paths, composite_path)
     
     return composite_path
 
@@ -129,8 +131,6 @@ def download_bbox(bbox, cog_url, read_all=False):
             transform=s3_src.transform
         )
         
-        # TODO: get dtype of s3_src and use in astype
-
         if read_all:
             s3_data = s3_src.read(masked=True, window=window).astype(np.uint16)
         else:
@@ -170,14 +170,10 @@ def download_collection(collection, bbox, bands, dst_dir):
         overlap_bbox_ll = overlap_poly_ll.bounds
         
         scene_dir = f'{dst_dir}/{item.id}'
+        stack_tif_path = f'{scene_dir}/stack.tif'
+
         if not os.path.exists(scene_dir):
             os.mkdir(scene_dir)
-        
-        stack_tif_path = f'{scene_dir}/stack.tif'
-        stack_masked_tif_path = f'{scene_dir}/stack_masked.tif'  
-        if os.path.exists(stack_tif_path) or os.path.exists(stack_masked_tif_path):
-            scenes[item.id]['stack_tif_path'] = stack_tif_path
-            continue
         
         merged_tif_paths = []
         for s3_href in band_hrefs:
@@ -185,10 +181,6 @@ def download_collection(collection, bbox, bands, dst_dir):
             band_name = s3_href.split('/')[-1].split('.')[0]
             band_path = f'{scene_dir}/{band_name}.tif'
             merged_path = f'{scene_dir}/{band_name}_merged.tif'
-            
-            if os.path.exists(merged_path):
-                merged_tif_paths.append(merged_path)
-                continue
             
             s3_data = download_bbox(bbox_utm, s3_href)
             write_array_to_tif(s3_data.astype(np.float32), band_path, overlap_bbox_ll, dtype=np.float32, nodata=NODATA_FLOAT32)
@@ -199,14 +191,7 @@ def download_collection(collection, bbox, bands, dst_dir):
 
             merge_tif_with_blank(band_path, blank_float32_path, band_name, bbox, merged_path=merged_path)
             merged_tif_paths.append(merged_path)
-        
-
-        """
-        vrt_path = f'{dst_dir}/temp.vrt'
-        create_vrt(merged_tif_paths, vrt_path)
-        create_tif_from_vrt(vrt_path, stack_tif_path, isCog=True)
-        os.remove(vrt_path)
-        """
+            
         
         stack_data = []
         for path in merged_tif_paths:
@@ -217,8 +202,8 @@ def download_collection(collection, bbox, bands, dst_dir):
         write_array_to_tif(stack_data, stack_tif_path, bbox, dtype=np.float32, nodata=NODATA_FLOAT32) 
         scenes[item.id]['stack_tif_path'] = stack_tif_path
         
-        #for merged_path in merged_tif_paths:
-        #    os.remove(merged_path)
+        for merged_path in merged_tif_paths:
+            os.remove(merged_path)
         
         
     return scenes
