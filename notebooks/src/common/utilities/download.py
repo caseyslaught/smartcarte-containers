@@ -102,16 +102,18 @@ def get_processed_composite(collection, bbox, dst_dir):
         stack_tif_path = merged_scenes[scene]['stack_tif_path']
         masked_tif_path = f'{dst_dir}/{scene}/stack_masked.tif'
         
-        apply_cloud_mask_and_normalize(stack_tif_path, meta, masked_tif_path, overwrite=False)
+        apply_cloud_mask_and_normalize(stack_tif_path, meta, masked_tif_path, overwrite=True)
         masked_scenes[scene] = masked_tif_path
         
-        if os.path.exists(stack_tif_path):
-            os.remove(stack_tif_path)
+        #if os.path.exists(stack_tif_path):
+        #    os.remove(stack_tif_path)
 
+            
     print('\tcompositing...')
     composite_path = f'{dst_dir}/composite.tif'
     merged_tif_paths = list(masked_scenes.values())    
-    create_composite_from_paths(merged_tif_paths, composite_path)
+    print(merged_tif_paths)
+    create_composite_from_paths(merged_tif_paths, composite_path, overwrite=True)
     
     return composite_path
 
@@ -215,8 +217,8 @@ def download_collection(collection, bbox, bands, dst_dir):
         write_array_to_tif(stack_data, stack_tif_path, bbox, dtype=np.float32, nodata=NODATA_FLOAT32) 
         scenes[item.id]['stack_tif_path'] = stack_tif_path
         
-        for merged_path in merged_tif_paths:
-            os.remove(merged_path)
+        #for merged_path in merged_tif_paths:
+        #    os.remove(merged_path)
         
         
     return scenes

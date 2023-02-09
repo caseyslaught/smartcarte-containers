@@ -98,9 +98,9 @@ def create_composite(band, stack_path, dst_dir, method="median"):
 import matplotlib.pyplot as plt
 
             
-def create_composite_from_paths(tif_paths, dst_path, nodata=NODATA_FLOAT32):
+def create_composite_from_paths(tif_paths, dst_path, nodata=NODATA_FLOAT32, overwrite=False):
     
-    if os.path.exists(dst_path):
+    if os.path.exists(dst_path) and not overwrite:
          return
     
     with rasterio.open(tif_paths[0]) as src:

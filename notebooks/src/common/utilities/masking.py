@@ -142,12 +142,18 @@ def apply_cloud_mask_and_normalize(stack_tif_path, meta, dst_path, overwrite=Tru
     # apply full mask to stack
     full_mask = stack_data.mask | mask    
     stack_data.mask = full_mask
+    
+    print(stack_data.shape)
     stack_data = stack_data[:-1, :, :]
+    print(stack_data.shape)
     
     # normalize
     norm_data = normalize_3d_array(stack_data)
+    print(norm_data.shape)
+
     norm_data = norm_data[:-1, :, :].transpose((1, 2, 0))
-    
+    print(norm_data.shape)
+
     write_array_to_tif(norm_data, dst_path, bbox, dtype=np.float32, nodata=NODATA_FLOAT32)
     
     return dst_path
