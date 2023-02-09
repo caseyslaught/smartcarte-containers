@@ -7,7 +7,8 @@ import rioxarray
 from scipy.ndimage import maximum_filter
 
 
-from common.constants import NODATA_UINT16
+from common.constants import NODATA_UINT16, NODATA_FLOAT32
+from common.utilities.imagery import normalize_3d_array, write_array_to_tif
 
 
 ### buffer around masked values ###
@@ -111,55 +112,48 @@ def _get_bcy_cloud_mask(green, red):
 
 ### cloud masking coordinator ###
 
-def save_cloud_masked_images(scene_dict, dst_dir, overwrite=True):
-    
-    if os.path.exists(f'{dst_dir}/B08_masked.tif') and not overwrite:
-        return {
-            band_name: f'{dst_dir}/{band_name}_masked.tif'
-            for band_name in scene_dict
-        }
-    
-    with rasterio.open(scene_dict['B03']) as green_src:
-        green_data = green_src.read(1, masked=True)
-
-    with rasterio.open(scene_dict['B04']) as red_src:
-        red_data = red_src.read(1, masked=True)
-    
-    with rasterio.open(scene_dict['B08']) as nir_src:
-        nir_data = nir_src.read(1, masked=True)
+def apply_cloud_mask_and_normalize(stack_tif_path, meta, dst_path, overwrite=True):
         
-    with rasterio.open(scene_dict['SCL']) as scl_src:
-        scl_data = scl_src.read(1, masked=True)
+    if os.path.exists(dst_path) and not overwrite:
+        return dst_path
+     
+    with rasterio.open(stack_tif_path) as src:
+        stack_data = src.read(masked=True)
+        bbox = list(src.bounds)
+            
+    green_data = stack_data[1, :, :]
+    red_data = stack_data[2, :, :]
+    nir_data = stack_data[3, :, :]
+    scl_data = stack_data[-1, :, :]
     
+    # calculate cloud mask
     bcy_cloud_mask = _get_bcy_cloud_mask(green_data, red_data) 
     scl_cloud_mask = _get_scl_cloud_mask(scl_data)
     cloud_mask = bcy_cloud_mask | scl_cloud_mask
 
+    # calculate dark pixel masks
     bad_mask = _get_scl_bad_pixel_mask(scl_data)
-
-    meta = scene_dict['meta']
     cloud_shadow_mask = _get_cloud_shadow_mask(cloud_mask, meta["AZIMUTH_ANGLE"], meta["ZENITH_ANGLE"], nir_data, scl_data)
-
     mask = cloud_mask | bad_mask | cloud_shadow_mask
+    
+    # add a buffer to the mask
     mask = _buffer_mask(mask)
+    
+    # apply full mask to stack
+    full_mask = stack_data.mask | mask    
+    stack_data.mask = full_mask
+    
+    print(stack_data.shape)
+    stack_data = stack_data[:-1, :, :]
+    print(stack_data.shape)
+    
+    # normalize
+    norm_data = normalize_3d_array(stack_data)
+    print(norm_data.shape)
 
-    masked_dict = {}
-    for band_name in scene_dict:
-        if band_name in ["meta", "SCL"]: continue
+    norm_data = norm_data[:-1, :, :].transpose((1, 2, 0))
+    print(norm_data.shape)
 
-        band_path = scene_dict[band_name]
-        masked_path = f'{dst_dir}/{band_name}_masked.tif'
-        masked_dict[band_name] = masked_path
-           
-        with rasterio.open(band_path) as band_src:        
-            band_data = band_src.read(1)           
-            masked_data = ma.masked_array(band_data, mask=mask)
-                
-            zeroed_data = masked_data.data
-            zeroed_data[masked_data.mask] = NODATA_UINT16
-            
-            with rasterio.open(masked_path, "w", **band_src.profile) as masked_src:
-                masked_src.write(zeroed_data, 1)
-
-    return masked_dict
-
+    write_array_to_tif(norm_data, dst_path, bbox, dtype=np.float32, nodata=NODATA_FLOAT32)
+    
+    return dst_path

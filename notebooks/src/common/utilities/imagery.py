@@ -4,11 +4,12 @@ import os
 from osgeo import gdal, gdalconst, osr
 import rasterio
 import rasterio.merge
+from rasterio.windows import Window
 import rioxarray
 import shutil
 import warnings
 
-from common.constants import NODATA_BYTE, NODATA_UINT16
+from common.constants import NODATA_BYTE, NODATA_FLOAT32, NODATA_FLOAT64, NODATA_UINT16
 
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -32,7 +33,7 @@ def create_band_stack(band_name, tif_paths, dst_dir):
     return stack_path
 
 
-def create_blank_tif(bbox_poly_ll, dst_dir=None, dst_path=None, dtype=gdal.GDT_UInt16, nodata=NODATA_UINT16):
+def create_blank_tif(bbox_poly_ll, dst_dir=None, dst_path=None, dtype=gdal.GDT_UInt16, nodata=NODATA_UINT16, res_meters=10):
 
     assert dst_dir is not None or dst_path is not None
     
@@ -50,14 +51,14 @@ def create_blank_tif(bbox_poly_ll, dst_dir=None, dst_path=None, dtype=gdal.GDT_U
     
     nbands = 1
     
-    res = 10 / (111.32 * 1000)
+    res = res_meters / (111.32 * 1000)
     xres = res  # resx = 10 / (111.32 * 1000) * cos((ymax-ymin)/2)
     yres = -res
     
     transform = [xmin, xres, 0, ymax, 0, yres]
-
-    xsize = int(np.rint(np.abs((xmax - xmin)) / xres))
-    ysize = int(np.rint(np.abs((ymax - ymin) / yres)))
+    
+    xsize = int((xmax - xmin) / xres + 0.5)
+    ysize = int((ymax - ymin) / -yres + 0.5)
 
     ds = driver.Create(dst_path, xsize, ysize, nbands, dtype, options=['COMPRESS=LZW', 'TILED=YES'])
     ds.SetProjection(wkt)
@@ -93,8 +94,45 @@ def create_composite(band, stack_path, dst_dir, method="median"):
 
     return composite_path
 
+            
+import matplotlib.pyplot as plt
 
-def merge_tif_with_blank(tif_path, blank_path, band_name, bbox_poly_ll, merged_path=None):
+            
+def create_composite_from_paths(tif_paths, dst_path, nodata=NODATA_FLOAT32, overwrite=False):
+    
+    if os.path.exists(dst_path) and not overwrite:
+         return
+    
+    with rasterio.open(tif_paths[0]) as src:
+        band_count = src.count
+        meta = src.meta.copy()
+        nrows, ncols = src.shape[0], src.shape[1]        
+    
+    with rasterio.open(dst_path, 'w', **meta) as dst:   
+        
+        batch_size = 600
+        for row in np.arange(0, nrows, batch_size):
+            #print(row)
+            
+            bsize = nrows - row if row + batch_size > nrows else batch_size
+            window = Window(0, row, ncols, bsize)
+
+            batch_data = []
+            for path in tif_paths:
+                with rasterio.open(path) as src:
+                    data = src.read(masked=True, window=window)   
+                    data[data.mask] = np.nan
+                    batch_data.append(data)
+        
+            batch_centre = np.nanmedian(batch_data, axis=0)
+
+            for i in range(band_count):
+                band_data = batch_centre[i, :, :]
+                masked_data = np.nan_to_num(band_data, nan=nodata)
+                dst.write(masked_data, indexes=i+1, window=window)
+                    
+
+def merge_tif_with_blank(tif_path, blank_path, band_name, bbox_ll, merged_path=None):
 
     if merged_path is None:
         merged_path = tif_path.replace(".tif", "_merged.tif")
@@ -109,7 +147,7 @@ def merge_tif_with_blank(tif_path, blank_path, band_name, bbox_poly_ll, merged_p
                 shutil.copy2(tif_path, merged_path)
                 return merged_path
 
-            merged, transform_ = rasterio.merge.merge([tif_src, blank_src], bounds=bbox_poly_ll.bounds)
+            merged, transform_ = rasterio.merge.merge([tif_src, blank_src], bounds=bbox_ll)
             merged = merged[0, :, :]
 
             merged_profile = blank_src.profile.copy()
@@ -122,6 +160,25 @@ def merge_tif_with_blank(tif_path, blank_path, band_name, bbox_poly_ll, merged_p
 
     return merged_path
 
+
+def normalize_3d_array(data):
+    
+    data[data.mask] = np.nan   
+    norm_data = np.zeros_like(data)
+    p1, p99 = np.nanpercentile(data, [1, 99], axis=[1, 2])    
+    
+    for i in range(p1.shape[0]):
+        band_data = np.clip(data[i, :, :], p1[i], p99[i])
+        band_data = (band_data - p1[i]) / (p99[i] - p1[i])
+        norm_data[i, :, :] = band_data
+    
+    return norm_data
+
+
+def normalize_1_255(data):
+    
+    data = (data - data.min()) / (data.max() - data.min()) * 254 + 1
+    return data
 
 
 ### VRT and GeoTIFF creation ###
@@ -143,13 +200,13 @@ def create_vrt(band_paths, dst_path):
     gdal.BuildVRT(dst_path, band_paths, options=vrt_options)
 
 
-def create_tif(vrt_path, dst_path, isCog=False):
+def create_tif_from_vrt(vrt_path, dst_path, isCog=False, nodata=NODATA_FLOAT64):
 
     _format = "COG" if isCog else "GTiff"
 
     translate_options = gdal.TranslateOptions(
         format=_format, 
-        noData=NODATA_UINT16,
+        noData=nodata,
     )
 
     gdal.Translate(dst_path, vrt_path, options=translate_options)
@@ -165,18 +222,37 @@ def create_byte_vrt(full_vrt_path, dst_path):
     )
     gdal.Translate(dst_path, full_vrt_path, options=translate_options)
 
+    
+    
+
+def create_rgb_byte_tif_from_composite(composite_path, dst_path):
+    
+    with rasterio.open(composite_path) as src:
+        meta = src.meta.copy()
+        bbox = list(src.bounds)
+        red = src.read(3, masked=True)
+        green = src.read(2, masked=True)
+        blue = src.read(1, masked=True)
+
+    red = normalize_1_255(red)
+    green = normalize_1_255(green)
+    blue = normalize_1_255(blue)    
+    rgb_data = np.ma.array([red, green, blue]).transpose((1, 2, 0)).astype(np.uint8)
+    
+    write_array_to_tif(rgb_data, dst_path, bbox, dtype=np.uint8, nodata=NODATA_BYTE)
+
    
     
-def write_array_to_tif(data, dst_path, bbox, dtype=np.uint16):
+def write_array_to_tif(data, dst_path, bbox, dtype=np.float32, nodata=NODATA_FLOAT32):
         
     height, width = data.shape[0], data.shape[1]
 
-    new_transform = rasterio.transform.from_bounds(
+    transform = rasterio.transform.from_bounds(
         bbox[0], bbox[1], 
         bbox[2], bbox[3], 
         width, height
     )
-    
+
     count = 1 if data.ndim == 2 else data.shape[2]
     
     meta = {
@@ -186,17 +262,20 @@ def write_array_to_tif(data, dst_path, bbox, dtype=np.uint16):
         "count": count,
         "dtype": dtype,
         "crs": rasterio.crs.CRS.from_epsg(4326),
-        "transform": new_transform
+        "transform": transform,
+        "nodata": nodata
     }
-       
+           
     with rasterio.open(dst_path, "w", **meta) as dst:
         if count == 1:
             dst.write(data, indexes=1)
         else:
             for i in range(count):
-                dst.write(data[:, :, i], indexes=i+1)
+                band_data = data[:, :, i]         
+                masked_data = band_data.data
+                masked_data[band_data.mask] = nodata
+                dst.write(masked_data, indexes=i+1)
 
-        
 
 ### Map tile creation ###
 
