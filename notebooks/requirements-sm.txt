@@ -3,4 +3,5 @@ labelbox
 patchify
 pystac-client
 rioxarray
-
+segmentation_models_pytorch
+split-folders
