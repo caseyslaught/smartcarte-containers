@@ -12,8 +12,8 @@ import xml.etree.ElementTree as ET
 
 from common.exceptions import EmptyCollectionException, IncompleteCoverageException, NotEnoughItemsException
 from common.constants import NODATA_BYTE, NODATA_FLOAT32, NODATA_UINT16, S2_BANDS, S2_BANDS_TIFF_ORDER
-from common.utilities.imagery import create_band_stack, create_blank_tif, create_composite, create_composite_from_paths, create_scene_cog, create_tif_from_vrt, create_vrt, merge_tif_with_blank, normalize_s3_image, write_array_to_tif
-from common.utilities.masking import save_cloud_masked_images
+from common.utilities.imagery import create_band_stack, create_blank_tif, create_composite, create_composite_from_paths, create_scene_cog, create_tif_from_vrt, create_vrt, merge_tif_with_blank, write_array_to_tif
+from common.utilities.masking import apply_cloud_mask_and_normalize
 from common.utilities.projections import get_collection_bbox_coverage, reproject_shape
 
 
@@ -89,22 +89,26 @@ def get_scene_metadata(href):
 
 
 
-def get_processed_composites(collection, bbox, dst_dir):
+def get_processed_composite(collection, bbox, dst_dir):
 
-    merged_scenes = download_original_imagery(collection, bbox, S2_BANDS_TIFF_ORDER, dst_dir)
+    merged_scenes = download_collection(collection, bbox, S2_BANDS_TIFF_ORDER, dst_dir)
     
     masked_scenes = {}
-    for scene in merged_scenes:
-        print('masking', scene)
-        
-        scene_dir = f'{dst_dir}/{scene}'
+    for scene in merged_scenes:        
+        print(f'\tmasking and normalizing... {scene}')
+
+        scene_dir = f'{dst_dir}/{scene}'        
         meta = merged_scenes[scene]['meta']
         stack_tif_path = merged_scenes[scene]['stack_tif_path']
-        
         masked_tif_path = f'{dst_dir}/{scene}/stack_masked.tif'
-        save_cloud_masked_images(stack_tif_path, meta, masked_tif_path, overwrite=False)
+        
+        apply_cloud_mask_and_normalize(stack_tif_path, meta, masked_tif_path, overwrite=False)
         masked_scenes[scene] = masked_tif_path
+        
+        if os.path.exists(stack_tif_path):
+            os.remove(stack_tif_path)
 
+    print('\tcompositing...')
     composite_path = f'{dst_dir}/composite.tif'
     merged_tif_paths = list(masked_scenes.values())    
     create_composite_from_paths(merged_tif_paths, composite_path)
@@ -134,7 +138,7 @@ def download_bbox(bbox, cog_url, read_all=False):
     
     
 
-def download_original_imagery(collection, bbox, bands, dst_dir):
+def download_collection(collection, bbox, bands, dst_dir):
 
     bbox_poly_ll = box(*bbox)
 
@@ -144,7 +148,7 @@ def download_original_imagery(collection, bbox, bands, dst_dir):
     scenes = {}
     for item in list(collection):
         
-        print(f'downloading... {item.id}')
+        print(f'\tdownloading... {item.id}')
 
         scenes[item.id] = {}
         band_hrefs = [item.assets[band].href for band in bands]
@@ -167,8 +171,9 @@ def download_original_imagery(collection, bbox, bands, dst_dir):
         if not os.path.exists(scene_dir):
             os.mkdir(scene_dir)
         
-        stack_tif_path = f'{scene_dir}/stack.tif'    
-        if os.path.exists(stack_tif_path):
+        stack_tif_path = f'{scene_dir}/stack.tif'
+        stack_masked_tif_path = f'{scene_dir}/stack_masked.tif'  
+        if os.path.exists(stack_tif_path) or os.path.exists(stack_masked_tif_path):
             scenes[item.id]['stack_tif_path'] = stack_tif_path
             continue
         
@@ -206,8 +211,8 @@ def download_original_imagery(collection, bbox, bands, dst_dir):
             with rasterio.open(path) as src:
                 stack_data.append(src.read(1))
                 
-        stack_data = np.array(stack_data).transpose((1, 2, 0))
-        write_array_to_tif(np.array(stack_data), stack_tif_path, bbox, dtype=np.float32, nodata=NODATA_FLOAT32) 
+        stack_data = np.ma.array(stack_data).transpose((1, 2, 0))
+        write_array_to_tif(stack_data, stack_tif_path, bbox, dtype=np.float32, nodata=NODATA_FLOAT32) 
         scenes[item.id]['stack_tif_path'] = stack_tif_path
         
         for merged_path in merged_tif_paths:
@@ -215,3 +220,5 @@ def download_original_imagery(collection, bbox, bands, dst_dir):
         
         
     return scenes
+
+

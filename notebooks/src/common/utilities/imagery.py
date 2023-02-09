@@ -100,8 +100,8 @@ import matplotlib.pyplot as plt
             
 def create_composite_from_paths(tif_paths, dst_path, nodata=NODATA_FLOAT32):
     
-    # if os.path.exists(dst_path):
-    #     return
+    if os.path.exists(dst_path):
+         return
     
     with rasterio.open(tif_paths[0]) as src:
         band_count = src.count
@@ -110,9 +110,9 @@ def create_composite_from_paths(tif_paths, dst_path, nodata=NODATA_FLOAT32):
     
     with rasterio.open(dst_path, 'w', **meta) as dst:   
         
-        batch_size = 400
+        batch_size = 600
         for row in np.arange(0, nrows, batch_size):
-            print(row)
+            #print(row)
             
             bsize = nrows - row if row + batch_size > nrows else batch_size
             window = Window(0, row, ncols, bsize)
@@ -161,11 +161,23 @@ def merge_tif_with_blank(tif_path, blank_path, band_name, bbox_ll, merged_path=N
     return merged_path
 
 
-def normalize_s3_image(data):
+def normalize_3d_array(data):
     
-    p1, p99 = np.nanpercentile(data.compressed(), [1, 99])
-    data = np.clip(data, p1, p99)
-    data = (data - p1) / (p99 - p1)
+    data[data.mask] = np.nan   
+    norm_data = np.zeros_like(data)
+    p1, p99 = np.nanpercentile(data, [1, 99], axis=[1, 2])    
+    
+    for i in range(p1.shape[0]):
+        band_data = np.clip(data[i, :, :], p1[i], p99[i])
+        band_data = (band_data - p1[i]) / (p99[i] - p1[i])
+        norm_data[i, :, :] = band_data
+    
+    return norm_data
+
+
+def normalize_1_255(data):
+    
+    data = (data - data.min()) / (data.max() - data.min()) * 254 + 1
     return data
 
 
@@ -209,6 +221,25 @@ def create_byte_vrt(full_vrt_path, dst_path):
         noData=NODATA_BYTE,
     )
     gdal.Translate(dst_path, full_vrt_path, options=translate_options)
+
+    
+    
+
+def create_rgb_byte_tif_from_composite(composite_path, dst_path):
+    
+    with rasterio.open(composite_path) as src:
+        meta = src.meta.copy()
+        bbox = list(src.bounds)
+        red = src.read(3, masked=True)
+        green = src.read(2, masked=True)
+        blue = src.read(1, masked=True)
+
+    red = normalize_1_255(red)
+    green = normalize_1_255(green)
+    blue = normalize_1_255(blue)    
+    rgb_data = np.ma.array([red, green, blue]).transpose((1, 2, 0)).astype(np.uint8)
+    
+    write_array_to_tif(rgb_data, dst_path, bbox, dtype=np.uint8, nodata=NODATA_BYTE)
 
    
     

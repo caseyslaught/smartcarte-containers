@@ -8,7 +8,7 @@ from scipy.ndimage import maximum_filter
 
 
 from common.constants import NODATA_UINT16, NODATA_FLOAT32
-from common.utilities.imagery import write_array_to_tif
+from common.utilities.imagery import normalize_3d_array, write_array_to_tif
 
 
 ### buffer around masked values ###
@@ -112,7 +112,7 @@ def _get_bcy_cloud_mask(green, red):
 
 ### cloud masking coordinator ###
 
-def save_cloud_masked_images(stack_tif_path, meta, dst_path, overwrite=True):
+def apply_cloud_mask_and_normalize(stack_tif_path, meta, dst_path, overwrite=True):
         
     if os.path.exists(dst_path) and not overwrite:
         return dst_path
@@ -126,19 +126,28 @@ def save_cloud_masked_images(stack_tif_path, meta, dst_path, overwrite=True):
     nir_data = stack_data[3, :, :]
     scl_data = stack_data[-1, :, :]
     
+    # calculate cloud mask
     bcy_cloud_mask = _get_bcy_cloud_mask(green_data, red_data) 
     scl_cloud_mask = _get_scl_cloud_mask(scl_data)
     cloud_mask = bcy_cloud_mask | scl_cloud_mask
 
+    # calculate dark pixel masks
     bad_mask = _get_scl_bad_pixel_mask(scl_data)
     cloud_shadow_mask = _get_cloud_shadow_mask(cloud_mask, meta["AZIMUTH_ANGLE"], meta["ZENITH_ANGLE"], nir_data, scl_data)
     mask = cloud_mask | bad_mask | cloud_shadow_mask
+    
+    # add a buffer to the mask
     mask = _buffer_mask(mask)
     
+    # apply full mask to stack
     full_mask = stack_data.mask | mask    
-    stack_data.mask = full_mask        
-    stack_data = stack_data[:-1, :, :].transpose((1, 2, 0))
+    stack_data.mask = full_mask
+    stack_data = stack_data[:-1, :, :]
     
-    write_array_to_tif(stack_data, dst_path, bbox, dtype=np.float32, nodata=NODATA_FLOAT32)
+    # normalize
+    norm_data = normalize_3d_array(stack_data)
+    norm_data = norm_data[:-1, :, :].transpose((1, 2, 0))
+    
+    write_array_to_tif(norm_data, dst_path, bbox, dtype=np.float32, nodata=NODATA_FLOAT32)
     
     return dst_path
