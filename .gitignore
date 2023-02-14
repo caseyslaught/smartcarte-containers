@@ -18,6 +18,8 @@ lightning_logs/
 testing
 dep
 
+*model.pth
+
 *.png
 
 # Byte-compiled / optimized / DLL files
