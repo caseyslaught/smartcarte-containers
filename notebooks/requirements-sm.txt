@@ -2,6 +2,7 @@ gdal2tiles
 labelbox
 patchify
 pystac-client
+radiant_mlhub
 rioxarray
 segmentation_models_pytorch
 split-folders
