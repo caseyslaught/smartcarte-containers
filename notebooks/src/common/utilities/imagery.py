@@ -235,7 +235,7 @@ def create_rgb_byte_tif_from_composite(composite_path, dst_path):
 
    
     
-def write_array_to_tif(data, dst_path, bbox, dtype=np.float32, nodata=NODATA_FLOAT32):
+def write_array_to_tif(data, dst_path, bbox, dtype=np.float32, epsg=4326, nodata=NODATA_FLOAT32):
         
     height, width = data.shape[0], data.shape[1]
 
@@ -253,7 +253,7 @@ def write_array_to_tif(data, dst_path, bbox, dtype=np.float32, nodata=NODATA_FLO
         "width": width,
         "count": count,
         "dtype": dtype,
-        "crs": rasterio.crs.CRS.from_epsg(4326),
+        "crs": rasterio.crs.CRS.from_epsg(epsg),
         "transform": transform,
         "nodata": nodata
     }
