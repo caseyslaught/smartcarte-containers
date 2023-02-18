@@ -13,7 +13,7 @@ import xml.etree.ElementTree as ET
 from common.exceptions import EmptyCollectionException, IncompleteCoverageException, NotEnoughItemsException
 from common.constants import NODATA_BYTE, NODATA_FLOAT32, NODATA_UINT16, S2_BANDS, S2_BANDS_TIFF_ORDER
 from common.utilities.imagery import create_band_stack, create_blank_tif, create_composite, create_composite_from_paths, create_scene_cog, create_tif_from_vrt, create_vrt, merge_tif_with_blank, write_array_to_tif
-from common.utilities.masking import apply_cloud_mask_and_normalize
+from common.utilities.masking import apply_cloud_mask
 from common.utilities.projections import get_collection_bbox_coverage, reproject_shape
 
 
@@ -106,7 +106,9 @@ def get_processed_composite(collection, bbox, dst_dir):
         stack_tif_path = merged_scenes[scene]['stack_tif_path']
         masked_tif_path = f'{dst_dir}/{scene}/stack_masked.tif'
         
-        apply_cloud_mask_and_normalize(stack_tif_path, meta, masked_tif_path)
+        # TODO: add normalization
+        
+        apply_cloud_mask(stack_tif_path, meta, masked_tif_path)
         
         masked_scenes[scene] = masked_tif_path
         

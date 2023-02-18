@@ -153,6 +153,29 @@ def merge_tif_with_blank(tif_path, blank_path, band_name, bbox_ll, merged_path=N
     return merged_path
 
 
+def normalize_tif(tif_path, dst_path=None):
+    if dst_path is None:
+        dst_path = tif_path
+        
+    with rasterio.open(tif_path) as src:
+        data = src.read(masked=True)
+        data[data.mask] = np.nan
+        bbox = list(src.bounds)
+        
+    norm_data = np.zeros_like(data)
+    p1, p99 = np.nanpercentile(data, [1, 99], axis=[1, 2])
+    
+    # loop through bands and update norm data
+    for i in range(p1.shape[0]):
+        band_data = np.clip(data[i, :, :], p1[i], p99[i])
+        band_data = (band_data - p1[i]) / (p99[i] - p1[i])
+        norm_data[i, :, :] = band_data
+                
+    norm_data = norm_data.transpose((1, 2, 0))
+    write_array_to_tif(norm_data, dst_path, bbox, dtype=norm_data.dtype, epsg=4326, nodata=NODATA_FLOAT32)
+
+        
+        
 def normalize_3d_array(data):
     
     data[data.mask] = np.nan   

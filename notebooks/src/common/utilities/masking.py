@@ -5,6 +5,8 @@ import os
 import rasterio
 import rioxarray
 from scipy.ndimage import maximum_filter
+import torch
+import torch.nn as nn
 
 
 from common.constants import NODATA_UINT16, NODATA_FLOAT32
@@ -72,7 +74,7 @@ def _get_cloud_shadow_mask(cloud_mask, azimuth, zenith, nir_array, scl_array):
     potential_shadow = np.sum(potential_shadow, axis=0) > 0
     
     water = scl_array == 6
-    dark_pixels = (nir_array < 1500) & ~water
+    dark_pixels = (nir_array < 0.15) & ~water
     
     shadow = potential_shadow & dark_pixels
     
@@ -100,9 +102,9 @@ def _get_bcy_cloud_mask(green, red):
     # (green > 0.175 AND NDGR > 0) OR (green > 0.39)
        
     ndgr = (green.astype(np.float32) - red.astype(np.float32)) / (green + red)
-    
-    cond1 = (green > 1750) & (ndgr > 0) 
-    cond2 = green > 3900
+        
+    cond1 = (green > 0.175) & (ndgr > 0) 
+    cond2 = green > 0.39
     mask = cond1 | cond2
     
     return mask
@@ -110,7 +112,7 @@ def _get_bcy_cloud_mask(green, red):
 
 ### cloud masking coordinator ###
 
-def apply_cloud_mask_and_normalize(stack_tif_path, meta, dst_path):
+def apply_cloud_mask(stack_tif_path, meta, dst_path):
      
     with rasterio.open(stack_tif_path) as src:
         stack_data = src.read(masked=True)
@@ -138,11 +140,59 @@ def apply_cloud_mask_and_normalize(stack_tif_path, meta, dst_path):
     full_mask = stack_data.mask | mask    
     stack_data.mask = full_mask    
     stack_data = stack_data[:-1, :, :]
+    stack_data = stack_data.transpose((1, 2, 0))
     
     # normalize
-    norm_data = normalize_3d_array(stack_data)
-    norm_data = norm_data.transpose((1, 2, 0))
+    #norm_data = normalize_3d_array(stack_data)
+    #norm_data = norm_data.transpose((1, 2, 0))
 
-    write_array_to_tif(norm_data, dst_path, bbox, dtype=np.float32, nodata=NODATA_FLOAT32)
+    write_array_to_tif(stack_data, dst_path, bbox, dtype=np.float32, nodata=NODATA_FLOAT32)
+    
+    return dst_path
+
+
+def apply_nn_cloud_mask(stack_tif_path, meta, dst_path):
+    
+    with rasterio.open(stack_tif_path) as src:
+        stack_data = src.read(masked=True)
+        bbox = list(src.bounds)
+     
+    nir_data = stack_data[3, :, :]
+    scl_data = stack_data[-1, :, :]
+    
+    image = stack_data[:-1, :, :]
+    saved_shape = image.shape
+
+    height_pad = 32 - (image.shape[1] % 32)
+    width_pad = 32 - (image.shape[2] % 32)
+    image = np.pad(image, ((0, 0), (0, height_pad), (0, width_pad)), mode='reflect') # , constant_values=NODATA_FLOAT32)
+    
+    image = np.expand_dims(image, 0)
+    image = torch.tensor(image)
+    
+    model_path = "./best_resnet18_dice_cloud_model.pth"
+    model = torch.load(model_path)
+
+    prediction = model.predict(image)    
+    softmax = nn.Softmax(dim=1)
+    probabilities = softmax(prediction) 
+    
+    prediction = torch.argmax(probabilities, dim=1).squeeze(1)
+    prediction = (prediction.squeeze().cpu().numpy().round())
+    
+    cloud_mask = prediction[:saved_shape[1], :saved_shape[2]]
+
+    # calculate dark pixel masks
+    bad_mask = _get_scl_bad_pixel_mask(scl_data)
+    cloud_shadow_mask = _get_cloud_shadow_mask(cloud_mask, meta["AZIMUTH_ANGLE"], meta["ZENITH_ANGLE"], nir_data, scl_data)
+    
+    full_mask = cloud_mask | bad_mask | cloud_shadow_mask
+    full_mask = _buffer_mask(full_mask)
+
+    stack_data.mask = full_mask    
+    stack_data = stack_data[:-1, :, :]
+    stack_data = stack_data.transpose((1, 2, 0))
+    
+    write_array_to_tif(stack_data, dst_path, bbox, dtype=np.float32, nodata=NODATA_FLOAT32)
     
     return dst_path
