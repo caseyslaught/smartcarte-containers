@@ -141,10 +141,6 @@ def apply_cloud_mask(stack_tif_path, meta, dst_path):
     stack_data.mask = full_mask    
     stack_data = stack_data[:-1, :, :]
     stack_data = stack_data.transpose((1, 2, 0))
-    
-    # normalize
-    #norm_data = normalize_3d_array(stack_data)
-    #norm_data = norm_data.transpose((1, 2, 0))
 
     write_array_to_tif(stack_data, dst_path, bbox, dtype=np.float32, nodata=NODATA_FLOAT32)
     
@@ -165,7 +161,7 @@ def apply_nn_cloud_mask(stack_tif_path, meta, dst_path):
 
     height_pad = 32 - (image.shape[1] % 32)
     width_pad = 32 - (image.shape[2] % 32)
-    image = np.pad(image, ((0, 0), (0, height_pad), (0, width_pad)), mode='reflect') # , constant_values=NODATA_FLOAT32)
+    image = np.pad(image, ((0, 0), (0, height_pad), (0, width_pad)), mode='reflect')
     
     image = np.expand_dims(image, 0)
     image = torch.tensor(image)

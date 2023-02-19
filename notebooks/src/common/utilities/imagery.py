@@ -160,7 +160,7 @@ def normalize_tif(tif_path, dst_path=None):
     with rasterio.open(tif_path) as src:
         data = src.read(masked=True)
         data[data.mask] = np.nan
-        bbox = list(src.bounds)
+        bbox = list(src.bounds)        
         
     norm_data = np.zeros_like(data)
     p1, p99 = np.nanpercentile(data, [1, 99], axis=[1, 2])
@@ -175,12 +175,12 @@ def normalize_tif(tif_path, dst_path=None):
     write_array_to_tif(norm_data, dst_path, bbox, dtype=norm_data.dtype, epsg=4326, nodata=NODATA_FLOAT32)
 
         
-        
 def normalize_3d_array(data):
+    # data.shape = (c, h, w)
     
     data[data.mask] = np.nan   
     norm_data = np.zeros_like(data)
-    p1, p99 = np.nanpercentile(data, [1, 99], axis=[1, 2])    
+    p1, p99 = np.nanpercentile(data.data, [1, 99], axis=[1, 2])    
     
     for i in range(p1.shape[0]):
         band_data = np.clip(data[i, :, :], p1[i], p99[i])
@@ -190,9 +190,22 @@ def normalize_3d_array(data):
     return norm_data
 
 
-def normalize_1_255(data):
+def normalize_0_254_3d_array(data, band_dim=2):
     
-    data = (data - data.min()) / (data.max() - data.min()) * 254 + 1
+    norm_data = np.zeros_like(data)
+    
+    for i in range(data.shape[band_dim]):
+        band_data = data[:, :, i]
+        band_data = (band_data - band_data.min()) / (band_data.max() - band_data.min()) * 254
+        norm_data[:, :, i] = band_data
+    
+    return norm_data.astype(np.uint8)
+
+
+
+def normalize_0_254(data):
+    
+    data = (data - data.min()) / (data.max() - data.min()) * 254
     return data
 
 
@@ -258,7 +271,7 @@ def create_rgb_byte_tif_from_composite(composite_path, dst_path):
 
    
     
-def write_array_to_tif(data, dst_path, bbox, dtype=np.float32, epsg=4326, nodata=NODATA_FLOAT32):
+def write_array_to_tif(data, dst_path, bbox, dtype=np.float32, epsg=4326, nodata=NODATA_FLOAT32, is_cog=False):
         
     height, width = data.shape[0], data.shape[1]
 
@@ -281,7 +294,13 @@ def write_array_to_tif(data, dst_path, bbox, dtype=np.float32, epsg=4326, nodata
         "nodata": nodata
     }
            
-    with rasterio.open(dst_path, "w", **meta) as dst:
+    if is_cog:
+        write_path = dst_path.replace('.tif', '_temp.tif')
+    else:
+        write_path = dst_path
+        
+        
+    with rasterio.open(write_path, "w", **meta) as dst:
         if count == 1:
             dst.write(data, indexes=1)
         else:
@@ -294,6 +313,11 @@ def write_array_to_tif(data, dst_path, bbox, dtype=np.float32, epsg=4326, nodata
                     band_data[mask] = nodata
                     
                 dst.write(band_data, indexes=i+1)
+    
+    if is_cog:
+        translate_options = gdal.TranslateOptions(format="COG")
+        gdal.Translate(dst_path, write_path, options=translate_options)
+        os.remove(write_path)
 
 
 ### Map tile creation ###
