@@ -1,4 +1,3 @@
-import math
 import numpy as np
 import os
 from osgeo import gdal
@@ -11,8 +10,8 @@ from shapely.geometry import box, shape, Point
 import xml.etree.ElementTree as ET
 
 from common.exceptions import EmptyCollectionException, IncompleteCoverageException, NotEnoughItemsException
-from common.constants import NODATA_BYTE, NODATA_FLOAT32, NODATA_UINT16, S2_BANDS, S2_BANDS_TIFF_ORDER
-from common.utilities.imagery import create_band_stack, create_blank_tif, create_composite, create_composite_from_paths, create_scene_cog, create_tif_from_vrt, create_vrt, merge_tif_with_blank, merge_stack_tif_with_blank, normalize_original_s2_array, write_array_to_tif
+from common.constants import NODATA_FLOAT32, S2_BANDS_TIFF_ORDER
+from common.utilities.imagery import create_blank_tif, create_composite_from_paths, merge_stack_with_blank, normalize_original_s2_array, write_array_to_tif
 from common.utilities.masking import apply_cloud_mask, apply_nn_cloud_mask
 from common.utilities.projections import get_collection_bbox_coverage, reproject_shape
 
@@ -71,7 +70,6 @@ def get_collection(start_date, end_date, bbox, dst_path, max_cloud_cover=20, max
     return collection
 
 
-
 def get_scene_metadata(href):
     
     res = requests.get(href)
@@ -88,9 +86,6 @@ def get_scene_metadata(href):
     }
 
 
-
-from common.utilities.visualization import plot_bands
-
 def get_processed_composite(collection, bbox, dst_dir):
 
     composite_path = f'{dst_dir}/composite.tif'
@@ -102,42 +97,39 @@ def get_processed_composite(collection, bbox, dst_dir):
     
     original_scenes = download_collection(collection, bbox, S2_BANDS_TIFF_ORDER, dst_dir)
     
-    masked_scenes = {}
+    processed_scenes = {}
     for scene in original_scenes:        
         print(f'\tmasking and normalizing... {scene}')
 
         scene_dir = f'{dst_dir}/{scene}'        
         meta = original_scenes[scene]['meta']
         
-        original_stack_tif_path = original_scenes[scene]['original_stack_tif_path']
-        
-        masked_tif_path = f'{dst_dir}/{scene}/stack_masked.tif'
-        merged_masked_tif_path = f'{dst_dir}/{scene}/stack_merged_and_masked.tif'   
+        stack_original_tif_path = original_scenes[scene]['stack_original_tif_path']  # 1. original, normalized
+        stack_masked_tif_path = f'{scene_dir}/stack_masked.tif'                      # 2. masked
+        stack_masked_merged_tif_path = f'{scene_dir}/stack_masked_merged.tif'        # 3. merged with blank
         
         model_path = './best_resnet18_dice_virunga_cloud_model.pth'
-        apply_nn_cloud_mask(original_stack_tif_path, meta, masked_tif_path, model_path)
+        apply_nn_cloud_mask(stack_original_tif_path, meta, stack_masked_tif_path, model_path)
         
-        merge_stack_tif_with_blank(masked_tif_path, blank_float32_path, bbox, merged_path=merged_masked_tif_path)
+        merge_stack_with_blank(stack_masked_tif_path, blank_float32_path, bbox, merged_path=stack_masked_merged_tif_path)
+        processed_scenes[scene] = stack_masked_merged_tif_path
         
-        masked_scenes[scene] = merged_masked_tif_path
-        
-        #if os.path.exists(stack_tif_path):
-        #    os.remove(stack_tif_path)
-            
-            
-    raise
+        #if os.path.exists(stack_original_tif_path):
+        #    os.remove(stack_original_tif_path)
+
+        #if os.path.exists(stack_masked_tif_path):
+        #    os.remove(stack_masked_tif_path)
+                        
     print('\tcompositing...')
-    merged_tif_paths = list(masked_scenes.values())    
-    create_composite_from_paths(merged_tif_paths, composite_path)
+    stacks_processed_tif_paths = list(processed_scenes.values())    
+    create_composite_from_paths(stacks_processed_tif_paths, composite_path)
     
     return composite_path
-
 
 
 def download_bbox(bbox, cog_url, read_all=False):
             
     with rasterio.open(cog_url) as s3_src:
-
         window = rasterio.windows.from_bounds(
             bbox[0], bbox[1], 
             bbox[2], bbox[3], 
@@ -152,7 +144,6 @@ def download_bbox(bbox, cog_url, read_all=False):
     return s3_data
     
     
-
 def download_collection(collection, bbox, bands, dst_dir):
 
     bbox_poly_ll = box(*bbox)
@@ -166,19 +157,19 @@ def download_collection(collection, bbox, bands, dst_dir):
         band_hrefs = [item.assets[band].href for band in bands]
         scenes[item.id]['meta'] = get_scene_metadata(item.assets['metadata'].href)
         
-        # reproject bbox into UTM of S2 item 
+        # reproject bbox into UTM zone of S2 scene 
         item_epsg = f'EPSG:{item.properties["proj:epsg"]}'
         bbox_sw_utm = reproject_shape(Point(bbox[0], bbox[1]), init_proj="EPSG:4326", target_proj=item_epsg)
         bbox_ne_utm = reproject_shape(Point(bbox[2], bbox[3]), init_proj="EPSG:4326", target_proj=item_epsg)
         bbox_utm = [bbox_sw_utm.x, bbox_sw_utm.y, bbox_ne_utm.x, bbox_ne_utm.y]
 
         # get intersection of bbox and S2 scene for windowed read
-        scene_poly_ll = shape(item.geometry) # Polygon of the entire scene
-        overlap_poly_ll = bbox_poly_ll.intersection(scene_poly_ll) # Polygon of intersection between entire scene and bbox
+        scene_poly_ll = shape(item.geometry) # polygon of the entire scene
+        overlap_poly_ll = bbox_poly_ll.intersection(scene_poly_ll) # polygon of intersection between entire scene and bbox
         overlap_bbox_ll = overlap_poly_ll.bounds
         
         scene_dir = f'{dst_dir}/{item.id}'
-        stack_tif_path = f'{scene_dir}/stack.tif'
+        stack_original_tif_path = f'{scene_dir}/stack_original.tif'
 
         if not os.path.exists(scene_dir):
             os.mkdir(scene_dir)
@@ -200,7 +191,6 @@ def download_collection(collection, bbox, bands, dst_dir):
             
             band_tif_paths.append(band_path)
             
-            
         stack_data = []
         for path in band_tif_paths:
             with rasterio.open(path) as src:
@@ -208,8 +198,8 @@ def download_collection(collection, bbox, bands, dst_dir):
                 
         stack_data = np.array(stack_data).transpose((1, 2, 0))
                 
-        write_array_to_tif(stack_data, stack_tif_path, overlap_bbox_ll, dtype=np.float32, nodata=NODATA_FLOAT32) 
-        scenes[item.id]['original_stack_tif_path'] = stack_tif_path
+        write_array_to_tif(stack_data, stack_original_tif_path, overlap_bbox_ll, dtype=np.float32, nodata=NODATA_FLOAT32) 
+        scenes[item.id]['stack_original_tif_path'] = stack_original_tif_path
         
     return scenes
 
