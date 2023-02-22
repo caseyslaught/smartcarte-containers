@@ -5,10 +5,12 @@ import os
 import rasterio
 import rioxarray
 from scipy.ndimage import maximum_filter
+import torch
+import torch.nn as nn
 
 
 from common.constants import NODATA_UINT16, NODATA_FLOAT32
-from common.utilities.imagery import normalize_3d_array, write_array_to_tif
+from common.utilities.imagery import write_array_to_tif
 
 
 ### buffer around masked values ###
@@ -63,7 +65,7 @@ def _get_cloud_shadow_mask(cloud_mask, azimuth, zenith, nir_array, scl_array):
     azimuth_rad = np.deg2rad(azimuth)
     zenith_rad = np.deg2rad(zenith)
         
-    cloud_heights = np.arange(400, 1200, 200) 
+    cloud_heights = np.arange(400, 1600, 200) 
     potential_shadow = np.array([
         _get_potential_shadow(cloud_height, azimuth_rad, zenith_rad, cloud_mask) 
         for cloud_height in cloud_heights
@@ -72,9 +74,9 @@ def _get_cloud_shadow_mask(cloud_mask, azimuth, zenith, nir_array, scl_array):
     potential_shadow = np.sum(potential_shadow, axis=0) > 0
     
     water = scl_array == 6
-    dark_pixels = (nir_array < 1500) & ~water
+    dark_pixels = (nir_array < 0.25) & ~water
     
-    shadow = potential_shadow & dark_pixels
+    shadow = potential_shadow # & dark_pixels
     
     return shadow
 
@@ -100,9 +102,9 @@ def _get_bcy_cloud_mask(green, red):
     # (green > 0.175 AND NDGR > 0) OR (green > 0.39)
        
     ndgr = (green.astype(np.float32) - red.astype(np.float32)) / (green + red)
-    
-    cond1 = (green > 1750) & (ndgr > 0) 
-    cond2 = green > 3900
+        
+    cond1 = (green > 0.175) & (ndgr > 0) 
+    cond2 = green > 0.39
     mask = cond1 | cond2
     
     return mask
@@ -110,12 +112,12 @@ def _get_bcy_cloud_mask(green, red):
 
 ### cloud masking coordinator ###
 
-def apply_cloud_mask_and_normalize(stack_tif_path, meta, dst_path):
-     
+def apply_cloud_mask(stack_tif_path, meta, dst_path):
+    
     with rasterio.open(stack_tif_path) as src:
         stack_data = src.read(masked=True)
         bbox = list(src.bounds)
-            
+                    
     green_data = stack_data[1, :, :]
     red_data = stack_data[2, :, :]
     nir_data = stack_data[3, :, :]
@@ -138,11 +140,53 @@ def apply_cloud_mask_and_normalize(stack_tif_path, meta, dst_path):
     full_mask = stack_data.mask | mask    
     stack_data.mask = full_mask    
     stack_data = stack_data[:-1, :, :]
-    
-    # normalize
-    norm_data = normalize_3d_array(stack_data)
-    norm_data = norm_data.transpose((1, 2, 0))
+    stack_data = stack_data.transpose((1, 2, 0))
 
-    write_array_to_tif(norm_data, dst_path, bbox, dtype=np.float32, nodata=NODATA_FLOAT32)
+    write_array_to_tif(stack_data, dst_path, bbox, dtype=np.float32, nodata=NODATA_FLOAT32)
+    
+    return dst_path
+
+
+def apply_nn_cloud_mask(stack_tif_path, meta, dst_path, model_path, band_path=None):
+    print(f'cloud masking with...{model_path}')
+    
+    with rasterio.open(stack_tif_path) as src:
+        stack_data = src.read(masked=True)
+        bbox = list(src.bounds)
+    
+    print('bbox', bbox)
+    
+    nir_data = stack_data[3, :, :]
+    scl_data = stack_data[-1, :, :]
+    
+    image = stack_data[:-1, :, :]
+    saved_shape = image.shape
+
+    height_pad = 32 - (image.shape[1] % 32)
+    width_pad = 32 - (image.shape[2] % 32)
+    image = np.pad(image, ((0, 0), (0, height_pad), (0, width_pad)), mode='reflect')
+    
+    image = np.expand_dims(image, 0)
+    image = torch.tensor(image)
+    
+    model = torch.load(model_path)
+    prediction = model.predict(image)       
+    probabilities = torch.sigmoid(prediction).cpu().numpy()
+    probabilities = probabilities[0, 0, :, :]
+    binary_prediction = (probabilities >= 0.80).astype(bool)
+    cloud_mask = binary_prediction[:saved_shape[1], :saved_shape[2]]
+
+    # calculate dark pixel masks
+    bad_mask = _get_scl_bad_pixel_mask(scl_data)
+    cloud_shadow_mask = _get_cloud_shadow_mask(cloud_mask, meta["AZIMUTH_ANGLE"], meta["ZENITH_ANGLE"], nir_data, scl_data)
+    
+    full_mask = cloud_mask | bad_mask | cloud_shadow_mask
+    full_mask = _buffer_mask(full_mask)
+
+    stack_data.mask = full_mask    
+    stack_data = stack_data[:-1, :, :]
+    stack_data = stack_data.transpose((1, 2, 0))
+    
+    write_array_to_tif(stack_data, dst_path, bbox, dtype=np.float32, nodata=NODATA_FLOAT32)
     
     return dst_path
