@@ -73,8 +73,8 @@ def _get_cloud_shadow_mask(cloud_mask, azimuth, zenith, nir_array, scl_array):
 
     potential_shadow = np.sum(potential_shadow, axis=0) > 0
     
-    water = scl_array == 6
-    dark_pixels = (nir_array < 0.25) & ~water
+    # water = scl_array == 6
+    # dark_pixels = (nir_array < 0.25) & ~water
     
     shadow = potential_shadow # & dark_pixels
     
@@ -112,7 +112,7 @@ def _get_bcy_cloud_mask(green, red):
 
 ### cloud masking coordinator ###
 
-def apply_cloud_mask(stack_tif_path, meta, dst_path):
+def apply_scl_cloud_mask(stack_tif_path, meta, dst_path):
     
     with rasterio.open(stack_tif_path) as src:
         stack_data = src.read(masked=True)
@@ -148,14 +148,11 @@ def apply_cloud_mask(stack_tif_path, meta, dst_path):
 
 
 def apply_nn_cloud_mask(stack_tif_path, meta, dst_path, model_path, band_path=None):
-    print(f'cloud masking with...{model_path}')
     
     with rasterio.open(stack_tif_path) as src:
         stack_data = src.read(masked=True)
         bbox = list(src.bounds)
-    
-    print('bbox', bbox)
-    
+        
     nir_data = stack_data[3, :, :]
     scl_data = stack_data[-1, :, :]
     
@@ -174,7 +171,10 @@ def apply_nn_cloud_mask(stack_tif_path, meta, dst_path, model_path, band_path=No
     probabilities = torch.sigmoid(prediction).cpu().numpy()
     probabilities = probabilities[0, 0, :, :]
     binary_prediction = (probabilities >= 0.80).astype(bool)
-    cloud_mask = binary_prediction[:saved_shape[1], :saved_shape[2]]
+    nn_cloud_mask = binary_prediction[:saved_shape[1], :saved_shape[2]]
+
+    scl_cloud_mask = _get_scl_cloud_mask(scl_data)
+    cloud_mask = nn_cloud_mask | scl_cloud_mask
 
     # calculate dark pixel masks
     bad_mask = _get_scl_bad_pixel_mask(scl_data)
@@ -182,6 +182,12 @@ def apply_nn_cloud_mask(stack_tif_path, meta, dst_path, model_path, band_path=No
     
     full_mask = cloud_mask | bad_mask | cloud_shadow_mask
     full_mask = _buffer_mask(full_mask)
+    
+    
+    pct_masked = full_mask.sum() / full_mask.size
+    if pct_masked > 0.80:
+        print(f'\t\tskipping {stack_tif_path}, {round(pct_masked, 2) * 100}% clouds')
+        return False
 
     stack_data.mask = full_mask    
     stack_data = stack_data[:-1, :, :]
@@ -189,4 +195,4 @@ def apply_nn_cloud_mask(stack_tif_path, meta, dst_path, model_path, band_path=No
     
     write_array_to_tif(stack_data, dst_path, bbox, dtype=np.float32, nodata=NODATA_FLOAT32)
     
-    return dst_path
+    return True

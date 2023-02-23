@@ -12,7 +12,7 @@ import xml.etree.ElementTree as ET
 from common.exceptions import EmptyCollectionException, IncompleteCoverageException, NotEnoughItemsException
 from common.constants import NODATA_FLOAT32, S2_BANDS_TIFF_ORDER
 from common.utilities.imagery import create_blank_tif, create_composite_from_paths, merge_stack_with_blank, normalize_original_s2_array, write_array_to_tif
-from common.utilities.masking import apply_cloud_mask, apply_nn_cloud_mask
+from common.utilities.masking import apply_nn_cloud_mask
 from common.utilities.projections import get_collection_bbox_coverage, reproject_shape
 
 
@@ -86,11 +86,11 @@ def get_scene_metadata(href):
     }
 
 
-def get_processed_composite(collection, bbox, dst_dir):
+def get_processed_composite(collection, bbox, dst_dir, cloud_mask_model_path):
 
     composite_path = f'{dst_dir}/composite.tif'
-    if os.path.exists(composite_path):
-        return composite_path
+    #if os.path.exists(composite_path):
+    #    return composite_path
 
     blank_float32_path = f'{dst_dir}/blank_float32.tif'
     create_blank_tif(bbox, dst_path=blank_float32_path, dtype=gdal.GDT_Float32, nodata=NODATA_FLOAT32)
@@ -99,7 +99,7 @@ def get_processed_composite(collection, bbox, dst_dir):
     
     processed_scenes = {}
     for scene in original_scenes:        
-        print(f'\tmasking and normalizing... {scene}')
+        print(f'\tmasking and merging... {scene}')
 
         scene_dir = f'{dst_dir}/{scene}'        
         meta = original_scenes[scene]['meta']
@@ -107,13 +107,13 @@ def get_processed_composite(collection, bbox, dst_dir):
         stack_original_tif_path = original_scenes[scene]['stack_original_tif_path']  # 1. original, normalized
         stack_masked_tif_path = f'{scene_dir}/stack_masked.tif'                      # 2. masked
         stack_masked_merged_tif_path = f'{scene_dir}/stack_masked_merged.tif'        # 3. merged with blank
-        
-        model_path = './best_resnet18_dice_virunga_cloud_model.pth'
-        apply_nn_cloud_mask(stack_original_tif_path, meta, stack_masked_tif_path, model_path)
+                
+        if not apply_nn_cloud_mask(stack_original_tif_path, meta, stack_masked_tif_path, cloud_mask_model_path):
+            continue
         
         merge_stack_with_blank(stack_masked_tif_path, blank_float32_path, bbox, merged_path=stack_masked_merged_tif_path)
         processed_scenes[scene] = stack_masked_merged_tif_path
-        
+
         #if os.path.exists(stack_original_tif_path):
         #    os.remove(stack_original_tif_path)
 

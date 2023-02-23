@@ -126,6 +126,7 @@ def create_composite_from_paths(stack_paths, dst_path, nodata=NODATA_FLOAT32):
                     batch_data.append(data)
         
             # calculate the median of the batch along the 0th axis (band)
+            batch_data = np.array(batch_data)            
             batch_centre = np.nanmedian(batch_data, axis=0)
 
             # write the data to the output file
@@ -145,10 +146,11 @@ def merge_stack_with_blank(stack_path, blank_path, bbox, merged_path=None):
         with rasterio.open(stack_path) as stack_src:
     
             bbnds, sbnds = blank_src.bounds, stack_src.bounds
-            if bbnds.left == sbnds.left and bbnds.bottom == sbnds.bottom and \
-            bbnds.right == sbnds.right and bbnds.top == sbnds.top:
-                shutil.copy2(stack_path, merged_path)
-                return merged_path
+            
+            #if bbnds.left == sbnds.left and bbnds.bottom == sbnds.bottom and \
+            #bbnds.right == sbnds.right and bbnds.top == sbnds.top:
+            #    shutil.copy2(stack_path, merged_path)
+            #    return merged_path
 
             # create a temp directory to store individual masked band files
             temp_dir = stack_path.replace('.tif', '_temp')
@@ -170,10 +172,6 @@ def merge_stack_with_blank(stack_path, blank_path, bbox, merged_path=None):
                 
                 with rasterio.open(temp_band_path) as temp_src:
                     
-                    print('stack_src', stack_src.meta)
-                    print('temp', temp_src.meta)
-                    print('blank', blank_src.meta)
-                    
                     merged_band_data, output_transform = rasterio.merge.merge([temp_src, blank_src], bounds=bbox)
                     merged_band_data = merged_band_data[0, :, :]
                     merged_stack_data.append(merged_band_data)           
@@ -182,6 +180,11 @@ def merge_stack_with_blank(stack_path, blank_path, bbox, merged_path=None):
             merged_stack_data = merged_stack_data.transpose((1, 2, 0))            
             write_array_to_tif(merged_stack_data, merged_path, bbox)
             
+            shutil.rmtree(temp_dir)
+          
+    res = 10 / (111.32 * 1000)
+    gdal.Warp(merged_path, merged_path, xRes=res, yRes=res, outputBounds=bbox)      
+        
     return merged_path
             
             
@@ -206,7 +209,7 @@ def merge_tif_with_blank(tif_path, blank_path, band_name, bbox_ll, merged_path=N
 
             merged, transform_ = rasterio.merge.merge([tif_src, blank_src], bounds=bbox_ll)
             merged = merged[0, :, :]
-
+            
             merged_profile = blank_src.profile.copy()
 
     with rasterio.open(merged_path, "w", **merged_profile) as new_src:
@@ -214,12 +217,9 @@ def merge_tif_with_blank(tif_path, blank_path, band_name, bbox_ll, merged_path=N
 
     return merged_path
 
-
-        
+    
 def normalize_3d_array_percentiles(data, p_low=1, p_high=99):
     # data.shape = (c, h, w)
-    
-    # this isn't working very well...using basic 4095 approach now
     
     data[data.mask] = np.nan   
     norm_data = np.zeros_like(data)
@@ -297,23 +297,18 @@ def create_byte_vrt(full_vrt_path, dst_path):
     gdal.Translate(dst_path, full_vrt_path, options=translate_options)
 
     
-    
 
 def create_rgb_byte_tif_from_composite(composite_path, dst_path):
     
     with rasterio.open(composite_path) as src:
-        meta = src.meta.copy()
         bbox = list(src.bounds)
-        red = src.read(3, masked=True)
-        green = src.read(2, masked=True)
-        blue = src.read(1, masked=True)
+        rgb_stack = src.read((3, 2, 1), masked=True)
 
-    red = normalize_1_255(red)
-    green = normalize_1_255(green)
-    blue = normalize_1_255(blue)    
-    rgb_data = np.ma.array([red, green, blue]).transpose((1, 2, 0)).astype(np.uint8)
+    rgb_stack = normalize_3d_array_percentiles(rgb_stack, 1, 99)
+    rgb_stack = (rgb_stack * 254).astype(np.uint8)        
+    rgb_stack = rgb_stack.transpose((1, 2, 0))
     
-    write_array_to_tif(rgb_data, dst_path, bbox, dtype=np.uint8, nodata=NODATA_BYTE)
+    write_array_to_tif(rgb_stack, dst_path, bbox, dtype=np.uint8, nodata=255)
 
    
     
