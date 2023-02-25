@@ -101,6 +101,13 @@ def create_composite(band, stack_path, dst_dir, method="median"):
             
 def create_composite_from_paths(stack_paths, dst_path, nodata=NODATA_FLOAT32):
     
+    if len(stack_paths) == 0:
+        return False
+    
+    elif len(stack_paths) == 1:
+        shutil.copy2(stack_paths[0], dst_path)
+        return True
+    
     with rasterio.open(stack_paths[0]) as src:
         band_count = src.count
         meta = src.meta.copy()
@@ -110,7 +117,7 @@ def create_composite_from_paths(stack_paths, dst_path, nodata=NODATA_FLOAT32):
     with rasterio.open(dst_path, 'w', **meta) as dst:   
         
         # process batch_size rows at a time
-        batch_size = 600
+        batch_size = 1600
         for row in np.arange(0, nrows, batch_size):
             
             # current bsize is batch_size unless we are near the end of the file
@@ -128,13 +135,15 @@ def create_composite_from_paths(stack_paths, dst_path, nodata=NODATA_FLOAT32):
             # calculate the median of the batch along the 0th axis (band)
             batch_data = np.array(batch_data)            
             batch_centre = np.nanmedian(batch_data, axis=0)
+            # batch_centre = np.nanmean(batch_data, axis=0)
 
             # write the data to the output file
             for i in range(band_count):
                 band_data = batch_centre[i, :, :]
                 masked_data = np.nan_to_num(band_data, nan=nodata)
                 dst.write(masked_data, indexes=i+1, window=window)
-    
+                
+    return True
     
 
 def merge_stack_with_blank(stack_path, blank_path, bbox, merged_path=None):
@@ -235,7 +244,7 @@ def normalize_3d_array_percentiles(data, p_low=1, p_high=99):
 
 def normalize_original_s2_array(data):
 
-    norm_data = data / 4095 # 4095 is the max value according to ESA
+    norm_data = data.astype(np.float32) / 4095 # 4095 is the max value according to ESA
     norm_data[norm_data > 1] = 1
     return norm_data
     

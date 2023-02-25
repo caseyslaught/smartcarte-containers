@@ -12,7 +12,7 @@ import xml.etree.ElementTree as ET
 from common.exceptions import EmptyCollectionException, IncompleteCoverageException, NotEnoughItemsException
 from common.constants import NODATA_FLOAT32, S2_BANDS_TIFF_ORDER
 from common.utilities.imagery import create_blank_tif, create_composite_from_paths, merge_stack_with_blank, normalize_original_s2_array, write_array_to_tif
-from common.utilities.masking import apply_nn_cloud_mask
+from common.utilities.masking import apply_nn_cloud_mask, apply_scl_cloud_mask
 from common.utilities.projections import get_collection_bbox_coverage, reproject_shape
 
 
@@ -106,9 +106,10 @@ def get_processed_composite(collection, bbox, dst_dir, cloud_mask_model_path):
         
         stack_original_tif_path = original_scenes[scene]['stack_original_tif_path']  # 1. original, normalized
         stack_masked_tif_path = f'{scene_dir}/stack_masked.tif'                      # 2. masked
-        stack_masked_merged_tif_path = f'{scene_dir}/stack_masked_merged.tif'        # 3. merged with blank
-                
+        stack_masked_merged_tif_path = f'{scene_dir}/stack_masked_merged.tif'        # 3. merged with blank           
+            
         if not apply_nn_cloud_mask(stack_original_tif_path, meta, stack_masked_tif_path, cloud_mask_model_path):
+            print(f'\t\tskipping {scene}; too many clouds')
             continue
         
         merge_stack_with_blank(stack_masked_tif_path, blank_float32_path, bbox, merged_path=stack_masked_merged_tif_path)
@@ -158,36 +159,44 @@ def download_collection(collection, bbox, bands, dst_dir):
         scenes[item.id]['meta'] = get_scene_metadata(item.assets['metadata'].href)
         
         # reproject bbox into UTM zone of S2 scene 
-        item_epsg = f'EPSG:{item.properties["proj:epsg"]}'
-        bbox_sw_utm = reproject_shape(Point(bbox[0], bbox[1]), init_proj="EPSG:4326", target_proj=item_epsg)
-        bbox_ne_utm = reproject_shape(Point(bbox[2], bbox[3]), init_proj="EPSG:4326", target_proj=item_epsg)
+        item_epsg_int = int(item.properties["proj:epsg"])
+        item_epsg_str = f'EPSG:{item_epsg_int}'
+        bbox_sw_utm = reproject_shape(Point(bbox[0], bbox[1]), init_proj="EPSG:4326", target_proj=item_epsg_str)
+        bbox_ne_utm = reproject_shape(Point(bbox[2], bbox[3]), init_proj="EPSG:4326", target_proj=item_epsg_str)
         bbox_utm = [bbox_sw_utm.x, bbox_sw_utm.y, bbox_ne_utm.x, bbox_ne_utm.y]
 
         # get intersection of bbox and S2 scene for windowed read
         scene_poly_ll = shape(item.geometry) # polygon of the entire scene
         overlap_poly_ll = bbox_poly_ll.intersection(scene_poly_ll) # polygon of intersection between entire scene and bbox
         overlap_bbox_ll = overlap_poly_ll.bounds
-        
+                
         scene_dir = f'{dst_dir}/{item.id}'
         stack_original_tif_path = f'{scene_dir}/stack_original.tif'
+        
+        # TESTING
+        if os.path.exists(stack_original_tif_path):
+            scenes[item.id]['stack_original_tif_path'] = stack_original_tif_path
+            continue
+
 
         if not os.path.exists(scene_dir):
             os.mkdir(scene_dir)
         
         band_tif_paths = []
         
-        for s3_href in band_hrefs:
-                        
+        for s3_href in band_hrefs:                        
             band_name = s3_href.split('/')[-1].split('.')[0]
             band_path = f'{scene_dir}/{band_name}.tif'
             
             s3_data = download_bbox(bbox_utm, s3_href)
             s3_data = normalize_original_s2_array(s3_data)
+                        
+            write_array_to_tif(s3_data, band_path, bbox_utm, dtype=np.float32, epsg=item_epsg_int, nodata=NODATA_FLOAT32, is_cog=False)
+            #write_array_to_tif(s3_data, band_path, overlap_bbox_ll, dtype=np.float32, nodata=NODATA_FLOAT32)
             
-            write_array_to_tif(s3_data.astype(np.float32), band_path, overlap_bbox_ll, dtype=np.float32, nodata=NODATA_FLOAT32)
-
-            res = 10 / (111.32 * 1000) # is this kosher ?     
-            gdal.Warp(band_path, band_path, xRes=res, yRes=res, outputBounds=overlap_bbox_ll)
+            res = 10 / (111.32 * 1000)
+            
+            gdal.Warp(band_path, band_path, dstSRS="EPSG:4326", xRes=res, yRes=res, outputBounds=overlap_bbox_ll)                        
             
             band_tif_paths.append(band_path)
             

@@ -9,7 +9,6 @@ NODATA_FLOAT64 = -9999
 NODATA_INT8 = 0 # 127
 NODATA_UINT16 = 0 # 65535
 
-S2_BANDS = ['SCL', 'B02', 'B03', 'B04', 'B08'] # make sure SCL first
 S2_BANDS_TIFF_ORDER = ['B02', 'B03', 'B04', 'B08', 'SCL'] # make sure SCL last
 
 S3_DATA_BUCKET = 'smartcarte-data'

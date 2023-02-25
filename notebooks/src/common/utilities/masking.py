@@ -124,9 +124,9 @@ def apply_scl_cloud_mask(stack_tif_path, meta, dst_path):
     scl_data = stack_data[-1, :, :]
     
     # calculate cloud mask
-    bcy_cloud_mask = _get_bcy_cloud_mask(green_data, red_data) 
+    # bcy_cloud_mask = _get_bcy_cloud_mask(green_data, red_data) 
     scl_cloud_mask = _get_scl_cloud_mask(scl_data)
-    cloud_mask = bcy_cloud_mask | scl_cloud_mask
+    cloud_mask = scl_cloud_mask # | bcy_cloud_mask
 
     # calculate dark pixel masks
     bad_mask = _get_scl_bad_pixel_mask(scl_data)
@@ -152,47 +152,45 @@ def apply_nn_cloud_mask(stack_tif_path, meta, dst_path, model_path, band_path=No
     with rasterio.open(stack_tif_path) as src:
         stack_data = src.read(masked=True)
         bbox = list(src.bounds)
-        
+                
     nir_data = stack_data[3, :, :]
     scl_data = stack_data[-1, :, :]
-    
+        
     image = stack_data[:-1, :, :]
     saved_shape = image.shape
 
     height_pad = 32 - (image.shape[1] % 32)
     width_pad = 32 - (image.shape[2] % 32)
     image = np.pad(image, ((0, 0), (0, height_pad), (0, width_pad)), mode='reflect')
-    
+        
     image = np.expand_dims(image, 0)
     image = torch.tensor(image)
-    
+        
+    # sometimes it is crashing here...
     model = torch.load(model_path)
     prediction = model.predict(image)       
+    print('\tprediction done')
     probabilities = torch.sigmoid(prediction).cpu().numpy()
     probabilities = probabilities[0, 0, :, :]
-    binary_prediction = (probabilities >= 0.80).astype(bool)
+    binary_prediction = (probabilities >= 0.50).astype(bool)
     nn_cloud_mask = binary_prediction[:saved_shape[1], :saved_shape[2]]
-
+    
     scl_cloud_mask = _get_scl_cloud_mask(scl_data)
     cloud_mask = nn_cloud_mask | scl_cloud_mask
-
+    
     # calculate dark pixel masks
     bad_mask = _get_scl_bad_pixel_mask(scl_data)
     cloud_shadow_mask = _get_cloud_shadow_mask(cloud_mask, meta["AZIMUTH_ANGLE"], meta["ZENITH_ANGLE"], nir_data, scl_data)
-    
+        
+    # this is also taking a long time...but not too long
     full_mask = cloud_mask | bad_mask | cloud_shadow_mask
-    full_mask = _buffer_mask(full_mask)
+    full_mask = _buffer_mask(full_mask, radius=20)
     
-    
-    pct_masked = full_mask.sum() / full_mask.size
-    if pct_masked > 0.80:
-        print(f'\t\tskipping {stack_tif_path}, {round(pct_masked, 2) * 100}% clouds')
-        return False
-
     stack_data.mask = full_mask    
     stack_data = stack_data[:-1, :, :]
     stack_data = stack_data.transpose((1, 2, 0))
     
     write_array_to_tif(stack_data, dst_path, bbox, dtype=np.float32, nodata=NODATA_FLOAT32)
     
-    return True
+    pct_masked = full_mask.sum() / full_mask.size
+    return pct_masked < 0.80
