@@ -35,32 +35,18 @@ def create_band_stack(band_name, tif_paths, dst_dir):
 
 
 
-from common.utilities.projections import reproject_shape
-
-def create_blank_tif(bbox, dst_dir=None, dst_path=None, dtype=gdal.GDT_Float32, nbands=1, nodata=NODATA_FLOAT32, res=None):
-
-    bbox_poly = box(*bbox)
-    
-    bbox_poly = reproject_shape(bbox_poly, init_proj="EPSG:4326", target_proj="ESRI:102022")    
-    
+def create_blank_tif(bbox, dst_dir=None, dst_path=None, dtype=gdal.GDT_Float32, nbands=4, nodata=NODATA_FLOAT32, res=None):
+        
     assert dst_dir is not None or dst_path is not None
     
-    bounds = bbox_poly.bounds
-    xmin, xmax = bounds[0], bounds[2] 
-    ymin, ymax = bounds[1], bounds[3]
+    xmin, xmax = bbox[0], bbox[2] 
+    ymin, ymax = bbox[1], bbox[3]
 
     driver = gdal.GetDriverByName('GTiff')
     spatref = osr.SpatialReference()
     spatref.ImportFromEPSG(4326)
     wkt = spatref.ExportToWkt()
     
-    
-    
-    proj = osr.SpatialReference()
-    proj.SetProjCS('Africa_Albers_Equal_Area_Conic')
-    proj.SetWellKnownGeogCS('WGS84')    
-    
-
     if dst_path is None:
         dst_path = f'{dst_dir}/blank.tif'
         
@@ -73,8 +59,7 @@ def create_blank_tif(bbox, dst_dir=None, dst_path=None, dtype=gdal.GDT_Float32, 
     ysize = int((ymax - ymin) / -yres + 0.5)
 
     ds = driver.Create(dst_path, xsize, ysize, nbands, dtype, options=['COMPRESS=LZW', 'TILED=YES'])
-    # ds.SetProjection(wkt)
-    ds.SetProjection(proj.ExportToWkt())
+    ds.SetProjection(wkt)
     ds.SetGeoTransform(transform)
     
     for i in range(nbands):
@@ -160,12 +145,7 @@ def create_composite_from_paths(stack_paths, dst_path, nodata=NODATA_FLOAT32):
     
     
 
-def merge_stack_with_blank(stack_path, blank_path, bbox, res, merged_path=None):
-    
-    bbox_poly = box(*bbox)
-    bbox_poly = reproject_shape(bbox_poly, init_proj="EPSG:4326", target_proj="ESRI:102022")    
-    bbox = bbox_poly.bounds
-    
+def merge_stack_with_blank(stack_path, blank_path, bbox, res, merged_path=None):  
     
     if merged_path is None:
         merged_path = stack_path.replace(".tif", "_merged.tif")
@@ -174,9 +154,11 @@ def merge_stack_with_blank(stack_path, blank_path, bbox, res, merged_path=None):
         with rasterio.open(blank_path) as blank_src:
             merged_data, merged_transform = rasterio.merge.merge([stack_src, blank_src], indexes=[1, 2, 3, 4], method="first", nodata=NODATA_FLOAT32)    
     
-    write_array_to_tif(merged_data.transpose((1,2,0)), merged_path, bbox, esri="ESRI:102022", transform=merged_transform)
+    write_array_to_tif(merged_data.transpose((1,2,0)), merged_path, None, epsg=4326, transform=merged_transform)
     
-    gdal.Warp(merged_path, merged_path, xRes=res, yRes=res, outputBounds=bbox)              
+    print(merged_transform)
+    
+    # gdal.Warp(merged_path, merged_path, xRes=res, yRes=res) # , outputBounds=bbox)              
     
     return merged_path
             
@@ -357,7 +339,7 @@ def create_rgb_byte_tif_from_composite(composite_path, dst_path):
 
    
     
-def write_array_to_tif(data, dst_path, bbox, dtype=np.float32, epsg=4326, esri=None, nodata=NODATA_FLOAT32, is_cog=False, transform=None):
+def write_array_to_tif(data, dst_path, bbox, dtype=np.float32, epsg=4326, nodata=NODATA_FLOAT32, is_cog=False, transform=None):
         
     height, width = data.shape[0], data.shape[1]
 
@@ -369,16 +351,14 @@ def write_array_to_tif(data, dst_path, bbox, dtype=np.float32, epsg=4326, esri=N
         )
 
     count = 1 if data.ndim == 2 else data.shape[2]
-    
-    crs = rasterio.crs.CRS.from_string("ESRI:102022") if esri is not None else rasterio.crs.CRS.from_epsg(epsg)
-    
+        
     meta = {
         "driver": "GTiff",
         "height": height,
         "width": width,
         "count": count,
         "dtype": dtype,
-        "crs": crs,
+        "crs": rasterio.crs.CRS.from_epsg(epsg),
         "transform": transform,
         "nodata": nodata
     }

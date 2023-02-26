@@ -187,43 +187,35 @@ def download_collection(collection, bbox, bands, dst_dir, res):
             os.mkdir(scene_dir)
         
         band_tif_paths = []
-        
-        # TESTING
-        
-        overlap_poly_albers = reproject_shape(overlap_poly_ll, init_proj="EPSG:4326", target_proj="ESRI:102022")
-        overlap_bbox_albers = overlap_poly_albers.bounds
-        
+               
+        saved_res = -1
+        saved_bounds = None
         for s3_href in band_hrefs:                        
             band_name = s3_href.split('/')[-1].split('.')[0]
             band_path = f'{scene_dir}/{band_name}.tif'
             
             s3_data = download_bbox(bbox_utm, s3_href)
             s3_data = normalize_original_s2_array(s3_data)
-                        
-            # trying albers for africa
-            write_array_to_tif(s3_data, band_path, overlap_bbox_albers, dtype=np.float32, esri="ESRI:102022", nodata=NODATA_FLOAT32)
+             
+            write_array_to_tif(s3_data, band_path, overlap_bbox_ll, dtype=np.float32, epsg=4326, nodata=NODATA_FLOAT32, is_cog=False)
             #write_array_to_tif(s3_data, band_path, overlap_bbox_utm, dtype=np.float32, epsg=item_epsg_int, nodata=NODATA_FLOAT32, is_cog=False)
-            # write_array_to_tif(s3_data, band_path, overlap_bbox_ll, dtype=np.float32, epsg=4326, nodata=NODATA_FLOAT32)            
-            
-            gdal.Warp(band_path, band_path, dstSRS="ESRI:102022", xRes=10, yRes=10, outputBounds=overlap_bbox_albers)                       
-            
+            gdal.Warp(band_path, band_path, dstSRS="EPSG:4326", xRes=res, yRes=res, outputBounds=overlap_bbox_ll)
+
             band_tif_paths.append(band_path)
             
         stack_data = []
         for path in band_tif_paths:
             with rasterio.open(path) as src:
-                print(src.shape)
                 stack_data.append(src.read(1))
                 
         stack_data = np.array(stack_data).transpose((1, 2, 0))
                 
-        write_array_to_tif(stack_data, stack_original_tif_path, overlap_bbox_albers, dtype=np.float32, esri="ESRI:102022", nodata=NODATA_FLOAT32) 
-        gdal.Warp(stack_original_tif_path, stack_original_tif_path, dstSRS="ESRI:102022", xRes=10, yRes=10, outputBounds=overlap_bbox_albers)                       
+        write_array_to_tif(stack_data, stack_original_tif_path, overlap_bbox_ll, dtype=np.float32, epsg=4326, nodata=NODATA_FLOAT32) 
         
-        # see if this makes pixel size the same...
-        #gdal.Warp(stack_original_tif_path, stack_original_tif_path, dstSRS="EPSG:4326", xRes=res, yRes=res, outputBounds=overlap_bbox_ll)                        
+        # gdal.Warp(stack_original_tif_path, stack_original_tif_path, dstSRS="EPSG:4326", xRes=res, yRes=res, outputBounds=overlap_bbox_ll)                        
 
         scenes[item.id]['stack_original_tif_path'] = stack_original_tif_path
+
         
     return scenes
 

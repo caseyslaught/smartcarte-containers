@@ -152,9 +152,7 @@ def apply_nn_cloud_mask(stack_tif_path, meta, dst_path, model_path, band_path=No
     with rasterio.open(stack_tif_path) as src:
         stack_data = src.read(masked=True)
         bbox = list(src.bounds)
-        
-    print(bbox)
-                
+                        
     nir_data = stack_data[3, :, :]
     scl_data = stack_data[-1, :, :]
         
@@ -192,7 +190,7 @@ def apply_nn_cloud_mask(stack_tif_path, meta, dst_path, model_path, band_path=No
     stack_data = stack_data[:-1, :, :]
     stack_data = stack_data.transpose((1, 2, 0))
     
-    write_array_to_tif(stack_data, dst_path, bbox, dtype=np.float32, esri="ESRI:102022", nodata=NODATA_FLOAT32)
+    write_array_to_tif(stack_data, dst_path, bbox, dtype=np.float32, epsg=4326, nodata=NODATA_FLOAT32)
     
     pct_masked = full_mask.sum() / full_mask.size
     return pct_masked < 0.80
