@@ -168,6 +168,3 @@ def create_map_tiles(file_path, tiles_dir, min_zoom=2, max_zoom=14):
     }
 
     gdal2tiles.generate_tiles(file_path, tiles_dir, **options)
-
-
-

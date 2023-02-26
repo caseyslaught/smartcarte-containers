@@ -13,7 +13,7 @@ import warnings
 from common.constants import NODATA_BYTE, NODATA_FLOAT32
 
 
-warnings.filterwarnings("ignore", category=RuntimeWarning)
+# warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 
 ### imagery preparation ###
@@ -143,7 +143,31 @@ def create_composite_from_paths(stack_paths, dst_path, nodata=NODATA_FLOAT32):
                 
     return True
     
-    
+# 2 4 8 2 0 nan 2: 2.5714285714285716
+
+
+def __merge_mean(merged_data, new_data, merged_mask, new_mask, index, roff, coff):    
+    new_data[new_mask] = np.nan
+    merged_data[merged_mask] = np.nan
+
+    # you need to update these inplace, not return something like docs say
+    merged_data[:] = np.nanmean(np.array([merged_data, new_data]), axis=0)
+    merged_mask[:] = merged_mask | new_mask
+
+
+def merge_scenes(scenes_dict, merged_path):
+
+    masked_sources = []
+    for scene in scenes_dict:
+        src = rasterio.open(scenes_dict[scene])
+        masked_sources.append(src)
+        
+    merged_data, merged_transform = rasterio.merge.merge(masked_sources, indexes=[1, 2, 3, 4], method=__merge_mean, nodata=NODATA_FLOAT32)  
+    merged_data = np.ma.array(merged_data, mask=(merged_data==NODATA_FLOAT32))
+    merged_data = np.array(merged_data).transpose((1, 2, 0))
+
+    write_array_to_tif(merged_data, merged_path, None, dtype=np.float32, epsg=4326, nodata=NODATA_FLOAT32, transform=merged_transform) 
+
 
 def merge_stack_with_blank(stack_path, blank_path, bbox, res, merged_path=None):  
     
@@ -154,95 +178,10 @@ def merge_stack_with_blank(stack_path, blank_path, bbox, res, merged_path=None):
         with rasterio.open(blank_path) as blank_src:
             merged_data, merged_transform = rasterio.merge.merge([stack_src, blank_src], indexes=[1, 2, 3, 4], method="first", nodata=NODATA_FLOAT32)    
     
-    write_array_to_tif(merged_data.transpose((1,2,0)), merged_path, None, epsg=4326, transform=merged_transform)
-    
-    print(merged_transform)
-    
+    write_array_to_tif(merged_data.transpose((1,2,0)), merged_path, None, epsg=4326, transform=merged_transform)    
     # gdal.Warp(merged_path, merged_path, xRes=res, yRes=res) # , outputBounds=bbox)              
     
-    return merged_path
-            
-
-
-def merge_stack_with_blank_old(stack_path, blank_path, bbox, merged_path=None):
-        
-    if merged_path is None:
-        merged_path = stack_path.replace(".tif", "_merged.tif")
-        
-    with rasterio.open(blank_path) as blank_src:
-        with rasterio.open(stack_path) as stack_src:
-    
-            bbnds, sbnds = blank_src.bounds, stack_src.bounds
-            
-            #if bbnds.left == sbnds.left and bbnds.bottom == sbnds.bottom and \
-            #bbnds.right == sbnds.right and bbnds.top == sbnds.top:
-            #    shutil.copy2(stack_path, merged_path)
-            #    return merged_path
-
-            # create a temp directory to store individual masked band files
-            temp_dir = stack_path.replace('.tif', '_temp')
-            os.makedirs(temp_dir, exist_ok=True)
-            
-            temp_meta = stack_src.meta.copy()
-            temp_meta.update(count=1)
-
-            merged_meta = blank_src.meta.copy()
-            merged_meta.update(count=stack_src.count)
-                        
-            merged_stack_data = []
-            for i in range(1, stack_src.count+1):
-                temp_data = stack_src.read(i) # masked?
-                                
-                temp_band_path = f'{temp_dir}/b{i}.tif'
-                with rasterio.open(temp_band_path, "w", **temp_meta) as temp_dst:
-                    temp_dst.write(temp_data, indexes=1)
-                
-                with rasterio.open(temp_band_path) as temp_src:
-                    
-                    merged_band_data, output_transform = rasterio.merge.merge([temp_src, blank_src], bounds=bbox)
-                    merged_band_data = merged_band_data[0, :, :]
-                    merged_stack_data.append(merged_band_data)           
-                    
-            merged_stack_data = np.array(merged_stack_data)
-            merged_stack_data = merged_stack_data.transpose((1, 2, 0))            
-            write_array_to_tif(merged_stack_data, merged_path, bbox)
-            
-            shutil.rmtree(temp_dir)
-          
-    res = 10 / (111.32 * 1000)
-    gdal.Warp(merged_path, merged_path, xRes=res, yRes=res, outputBounds=bbox)      
-        
-    return merged_path
-            
-            
-        
-def merge_tif_with_blank(tif_path, blank_path, band_name, bbox_ll, merged_path=None):
-
-    if merged_path is None:
-        merged_path = tif_path.replace(".tif", "_merged.tif")
-    
-    # TODO: handle stack input tif
-    
-    with rasterio.open(blank_path) as blank_src:
-        
-        with rasterio.open(tif_path) as tif_src:
-            
-            # if the bounds are the same then just skip merging
-            tbnds, dbnds = blank_src.bounds, tif_src.bounds
-            if tbnds.left == dbnds.left and tbnds.bottom == dbnds.bottom and \
-            tbnds.right == dbnds.right and tbnds.top == dbnds.top:
-                shutil.copy2(tif_path, merged_path)
-                return merged_path
-
-            merged, transform_ = rasterio.merge.merge([tif_src, blank_src], bounds=bbox_ll)
-            merged = merged[0, :, :]
-            
-            merged_profile = blank_src.profile.copy()
-
-    with rasterio.open(merged_path, "w", **merged_profile) as new_src:
-        new_src.write(merged, 1)
-
-    return merged_path
+    return merged_path   
 
     
 def normalize_3d_array_percentiles(data, p_low=1, p_high=99):
@@ -281,18 +220,7 @@ def normalize_tif(tif_path, dst_path=None):
     write_array_to_tif(norm_data, dst_path, bbox, dtype=np.float32, epsg=4326, nodata=NODATA_FLOAT32)
 
 
-
 ### VRT and GeoTIFF creation ###
-
-def create_scene_cog(src_paths, dst_path):
-    print(src_paths)
-    print(dst_path)
-
-    vrt_path = dst_path.replace('.tif', '_temp.vrt')
-    print(vrt_path)
-    
-    create_vrt(src_paths, vrt_path)
-    create_tif(vrt_path, dst_path, isCog=True)
 
 
 def create_vrt(band_paths, dst_path):
@@ -331,7 +259,7 @@ def create_rgb_byte_tif_from_composite(composite_path, dst_path):
         bbox = list(src.bounds)
         rgb_stack = src.read((3, 2, 1), masked=True)
 
-    rgb_stack = normalize_3d_array_percentiles(rgb_stack, 1, 99)
+    rgb_stack = normalize_3d_array_percentiles(rgb_stack, 1, 99) # maybe change these...
     rgb_stack = (rgb_stack * 254).astype(np.uint8)        
     rgb_stack = rgb_stack.transpose((1, 2, 0))
     
