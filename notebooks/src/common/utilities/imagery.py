@@ -13,7 +13,7 @@ import warnings
 from common.constants import NODATA_BYTE, NODATA_FLOAT32
 
 
-# warnings.filterwarnings("ignore", category=RuntimeWarning)
+warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 
 ### imagery preparation ###
@@ -143,9 +143,7 @@ def create_composite_from_paths(stack_paths, dst_path, nodata=NODATA_FLOAT32):
                 
     return True
     
-# 2 4 8 2 0 nan 2: 2.5714285714285716
-
-
+    
 def __merge_mean(merged_data, new_data, merged_mask, new_mask, index, roff, coff):    
     new_data[new_mask] = np.nan
     merged_data[merged_mask] = np.nan
@@ -162,11 +160,16 @@ def merge_scenes(scenes_dict, merged_path):
         src = rasterio.open(scenes_dict[scene])
         masked_sources.append(src)
         
-    merged_data, merged_transform = rasterio.merge.merge(masked_sources, indexes=[1, 2, 3, 4], method=__merge_mean, nodata=NODATA_FLOAT32)  
-    merged_data = np.ma.array(merged_data, mask=(merged_data==NODATA_FLOAT32))
-    merged_data = np.array(merged_data).transpose((1, 2, 0))
+    sum_data, sum_transform = rasterio.merge.merge(masked_sources, indexes=[1, 2, 3, 4], method="sum", nodata=NODATA_FLOAT32)  
+    sum_data = np.ma.array(sum_data, mask=(sum_data==NODATA_FLOAT32))
 
-    write_array_to_tif(merged_data, merged_path, None, dtype=np.float32, epsg=4326, nodata=NODATA_FLOAT32, transform=merged_transform) 
+    count_data, count_transform = rasterio.merge.merge(masked_sources, indexes=[1, 2, 3, 4], method="count", nodata=NODATA_FLOAT32)  
+    count_data = np.ma.array(count_data, mask=(count_data==NODATA_FLOAT32))
+    
+    mean_data = sum_data / count_data    
+    mean_data = mean_data.transpose((1, 2, 0))
+    
+    write_array_to_tif(mean_data, merged_path, None, dtype=np.float32, epsg=4326, nodata=NODATA_FLOAT32, transform=sum_transform) 
 
 
 def merge_stack_with_blank(stack_path, blank_path, bbox, res, merged_path=None):  
@@ -259,7 +262,7 @@ def create_rgb_byte_tif_from_composite(composite_path, dst_path):
         bbox = list(src.bounds)
         rgb_stack = src.read((3, 2, 1), masked=True)
 
-    rgb_stack = normalize_3d_array_percentiles(rgb_stack, 1, 99) # maybe change these...
+    rgb_stack = normalize_3d_array_percentiles(rgb_stack, 0.1, 99.9)
     rgb_stack = (rgb_stack * 254).astype(np.uint8)        
     rgb_stack = rgb_stack.transpose((1, 2, 0))
     

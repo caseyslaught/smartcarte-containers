@@ -171,10 +171,10 @@ def download_collection(collection, bbox, bands, dst_dir, res):
         scene_dir = f'{dst_dir}/{item.id}'
         stack_original_tif_path = f'{scene_dir}/stack_original.tif'
         
-        # TESTING
-        #if os.path.exists(stack_original_tif_path):
-        #    scenes[item.id]['stack_original_tif_path'] = stack_original_tif_path
-        #    continue
+        ### TESTING ###
+        if os.path.exists(stack_original_tif_path):
+            scenes[item.id]['stack_original_tif_path'] = stack_original_tif_path
+            continue
 
         if not os.path.exists(scene_dir):
             os.mkdir(scene_dir)

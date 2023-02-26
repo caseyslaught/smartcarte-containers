@@ -168,7 +168,10 @@ def apply_nn_cloud_mask(stack_tif_path, meta, dst_path, model_path, band_path=No
         
     # sometimes it is crashing here...
     model = torch.load(model_path)
-    prediction = model.predict(image)       
+    prediction = model.predict(image)
+    
+    
+    
     print('\t\tprediction done')
     probabilities = torch.sigmoid(prediction).cpu().numpy()
     probabilities = probabilities[0, 0, :, :]
