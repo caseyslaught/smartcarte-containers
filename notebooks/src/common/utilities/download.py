@@ -93,9 +93,11 @@ def get_processed_composite(collection, bbox, dst_dir, cloud_mask_model_path):
     #    return composite_path
 
     blank_float32_path = f'{dst_dir}/blank_float32.tif'
-    create_blank_tif(bbox, dst_path=blank_float32_path, dtype=gdal.GDT_Float32, nodata=NODATA_FLOAT32)
+
+    res = 10 / (111.32 * 1000) # * cos((bbox[3]-bbox[1])/2)
+    create_blank_tif(bbox, dst_path=blank_float32_path, dtype=gdal.GDT_Float32, nodata=NODATA_FLOAT32, res=res)
     
-    original_scenes = download_collection(collection, bbox, S2_BANDS_TIFF_ORDER, dst_dir)
+    original_scenes = download_collection(collection, bbox, S2_BANDS_TIFF_ORDER, dst_dir, res)
     
     processed_scenes = {}
     for scene in original_scenes:        
@@ -145,7 +147,7 @@ def download_bbox(bbox, cog_url, read_all=False):
     return s3_data
     
     
-def download_collection(collection, bbox, bands, dst_dir):
+def download_collection(collection, bbox, bands, dst_dir, res):
 
     bbox_poly_ll = box(*bbox)
 
@@ -164,25 +166,32 @@ def download_collection(collection, bbox, bands, dst_dir):
         bbox_sw_utm = reproject_shape(Point(bbox[0], bbox[1]), init_proj="EPSG:4326", target_proj=item_epsg_str)
         bbox_ne_utm = reproject_shape(Point(bbox[2], bbox[3]), init_proj="EPSG:4326", target_proj=item_epsg_str)
         bbox_utm = [bbox_sw_utm.x, bbox_sw_utm.y, bbox_ne_utm.x, bbox_ne_utm.y]
-
+        
         # get intersection of bbox and S2 scene for windowed read
         scene_poly_ll = shape(item.geometry) # polygon of the entire scene
         overlap_poly_ll = bbox_poly_ll.intersection(scene_poly_ll) # polygon of intersection between entire scene and bbox
+        overlap_poly_utm = reproject_shape(overlap_poly_ll, init_proj="EPSG:4326", target_proj=item_epsg_str)
+
         overlap_bbox_ll = overlap_poly_ll.bounds
-                
+        overlap_bbox_utm = overlap_poly_utm.bounds
+                        
         scene_dir = f'{dst_dir}/{item.id}'
         stack_original_tif_path = f'{scene_dir}/stack_original.tif'
         
         # TESTING
-        if os.path.exists(stack_original_tif_path):
-            scenes[item.id]['stack_original_tif_path'] = stack_original_tif_path
-            continue
-
+        #if os.path.exists(stack_original_tif_path):
+        #    scenes[item.id]['stack_original_tif_path'] = stack_original_tif_path
+        #    continue
 
         if not os.path.exists(scene_dir):
             os.mkdir(scene_dir)
         
         band_tif_paths = []
+        
+        # TESTING
+        
+        overlap_poly_albers = reproject_shape(overlap_poly_ll, init_proj="EPSG:4326", target_proj="ESRI:102022")
+        overlap_bbox_albers = overlap_poly_albers.bounds
         
         for s3_href in band_hrefs:                        
             band_name = s3_href.split('/')[-1].split('.')[0]
@@ -191,23 +200,29 @@ def download_collection(collection, bbox, bands, dst_dir):
             s3_data = download_bbox(bbox_utm, s3_href)
             s3_data = normalize_original_s2_array(s3_data)
                         
-            write_array_to_tif(s3_data, band_path, bbox_utm, dtype=np.float32, epsg=item_epsg_int, nodata=NODATA_FLOAT32, is_cog=False)
-            #write_array_to_tif(s3_data, band_path, overlap_bbox_ll, dtype=np.float32, nodata=NODATA_FLOAT32)
+            # trying albers for africa
+            write_array_to_tif(s3_data, band_path, overlap_bbox_albers, dtype=np.float32, esri="ESRI:102022", nodata=NODATA_FLOAT32)
+            #write_array_to_tif(s3_data, band_path, overlap_bbox_utm, dtype=np.float32, epsg=item_epsg_int, nodata=NODATA_FLOAT32, is_cog=False)
+            # write_array_to_tif(s3_data, band_path, overlap_bbox_ll, dtype=np.float32, epsg=4326, nodata=NODATA_FLOAT32)            
             
-            res = 10 / (111.32 * 1000)
-            
-            gdal.Warp(band_path, band_path, dstSRS="EPSG:4326", xRes=res, yRes=res, outputBounds=overlap_bbox_ll)                        
+            gdal.Warp(band_path, band_path, dstSRS="ESRI:102022", xRes=10, yRes=10, outputBounds=overlap_bbox_albers)                       
             
             band_tif_paths.append(band_path)
             
         stack_data = []
         for path in band_tif_paths:
             with rasterio.open(path) as src:
+                print(src.shape)
                 stack_data.append(src.read(1))
                 
         stack_data = np.array(stack_data).transpose((1, 2, 0))
                 
-        write_array_to_tif(stack_data, stack_original_tif_path, overlap_bbox_ll, dtype=np.float32, nodata=NODATA_FLOAT32) 
+        write_array_to_tif(stack_data, stack_original_tif_path, overlap_bbox_albers, dtype=np.float32, esri="ESRI:102022", nodata=NODATA_FLOAT32) 
+        gdal.Warp(stack_original_tif_path, stack_original_tif_path, dstSRS="ESRI:102022", xRes=10, yRes=10, outputBounds=overlap_bbox_albers)                       
+        
+        # see if this makes pixel size the same...
+        #gdal.Warp(stack_original_tif_path, stack_original_tif_path, dstSRS="EPSG:4326", xRes=res, yRes=res, outputBounds=overlap_bbox_ll)                        
+
         scenes[item.id]['stack_original_tif_path'] = stack_original_tif_path
         
     return scenes
