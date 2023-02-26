@@ -362,7 +362,7 @@ def write_array_to_tif(data, dst_path, bbox, dtype=np.float32, epsg=4326, nodata
         "transform": transform,
         "nodata": nodata
     }
-           
+    
     if is_cog:
         write_path = dst_path.replace('.tif', '_temp.tif')
     else:

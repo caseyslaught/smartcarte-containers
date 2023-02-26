@@ -208,10 +208,8 @@ def download_collection(collection, bbox, bands, dst_dir, res):
             with rasterio.open(path) as src:
                 stack_data.append(src.read(1))
                 
-        stack_data = np.array(stack_data).transpose((1, 2, 0))
-                
-        write_array_to_tif(stack_data, stack_original_tif_path, overlap_bbox_ll, dtype=np.float32, epsg=4326, nodata=NODATA_FLOAT32) 
-        
+        stack_data = np.array(stack_data).transpose((1, 2, 0))     
+        write_array_to_tif(stack_data, stack_original_tif_path, overlap_bbox_ll, dtype=np.float32, epsg=4326, nodata=NODATA_FLOAT32)         
         # gdal.Warp(stack_original_tif_path, stack_original_tif_path, dstSRS="EPSG:4326", xRes=res, yRes=res, outputBounds=overlap_bbox_ll)                        
 
         scenes[item.id]['stack_original_tif_path'] = stack_original_tif_path
