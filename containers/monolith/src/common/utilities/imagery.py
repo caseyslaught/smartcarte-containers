@@ -4,6 +4,7 @@ import os
 from osgeo import gdal
 import rasterio
 import rasterio.merge
+import shutil
 import warnings
 
 from common.constants import NODATA_FLOAT32
@@ -15,6 +16,12 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 ### imagery preparation ###
 
 def merge_scenes(scenes_dict, merged_path):
+    
+    if len(scenes_dict) == 1:
+        print('only one scene to merge; copying')
+        only_path = list(scenes_dict.values())[0]
+        shutil.copy2(only_path, merged_path)
+        return
 
     masked_sources = []
     for scene in scenes_dict:

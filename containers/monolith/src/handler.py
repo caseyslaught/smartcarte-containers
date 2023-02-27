@@ -26,7 +26,7 @@ def handle():
 
     print("task_uid:", task_uid)
     print("task_type:", task_type)
-
+    
     update_task_status(task_uid, task_type, "running")
 
     if task_type == "forest_change":
@@ -76,7 +76,7 @@ def handle():
                     update_task_status(task_uid, task_type, "failed", "Not enough cloud-free imagery around start date.")
                     return
                 else:
-                    before_cloud_cover += 10
+                    before_cloud_cover += 20
             else:
                 break
 
@@ -93,7 +93,7 @@ def handle():
                     update_task_status(task_uid, task_type, "failed", "Not enough cloud-free imagery around end date.")
                     return
                 else:
-                    after_cloud_cover += 10
+                    after_cloud_cover += 20
             else:
                 break
 
@@ -161,13 +161,13 @@ def handle():
         plot_tif(after_rgb_path, after_rgb_plot, bands=[1, 2, 3], cmap=None)
 
         before_prediction_plot = f'{before_dir}/forest.png'
-        plot_tif(before_prediction_path, before_prediction_plot, bands=1, cmap='RdYlGn')
+        plot_tif(before_prediction_path, before_prediction_plot, bands=1, cmap='RdYlGn', vmin=0, vmax=100)
 
         after_prediction_plot = f'{after_dir}/forest.png'
-        plot_tif(after_prediction_path, after_prediction_plot, bands=1, cmap='RdYlGn')
+        plot_tif(after_prediction_path, after_prediction_plot, bands=1, cmap='RdYlGn', vmin=0, vmax=100)
 
         change_plot = f'{results_dir}/change.png'
-        plot_tif(change_path, change_plot, bands=1, cmap='RdYlGn')
+        plot_tif(change_path, change_plot, bands=1, cmap='RdYlGn', vmin=0, vmax=100)
 
 
         ### upload results assets to S3 ###

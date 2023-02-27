@@ -136,5 +136,6 @@ def apply_nn_cloud_mask(stack_tif_path, meta, dst_path, model_path, band_path=No
     write_array_to_tif(stack_data, dst_path, bbox, dtype=np.float32, epsg=4326, nodata=NODATA_FLOAT32)
     
     pct_masked = full_mask.sum() / full_mask.size
-    return pct_masked < 0.80
+    print(pct_masked)
+    return pct_masked < 0.90
 

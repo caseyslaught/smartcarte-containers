@@ -4,6 +4,7 @@ gdal2tiles
 geopandas==0.12.1
 matplotlib
 pystac-client
+pytorch
 rasterio==1.2.0 --no-binary rasterio
 requests
 rioxarray

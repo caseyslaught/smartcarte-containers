@@ -3,13 +3,14 @@ import rasterio
 
 
 
-def save_image(data, dst_path, cmap):
-    plt.imshow(data, cmap=cmap, interpolation="nearest")
+def save_image(data, dst_path, cmap, vmin, vmax):
+
+    plt.imshow(data, cmap=cmap, interpolation="nearest", vmin=vmin, vmax=vmax)
     plt.savefig(dst_path)
     plt.clf()
 
 
-def plot_tif(tif_path, dst_path, bands=1, cmap="RdYlGn"):
+def plot_tif(tif_path, dst_path, bands=1, cmap="RdYlGn", vmin=None, vmax=None):
     
     with rasterio.open(tif_path) as src:
         data = src.read(bands, masked=True)
@@ -17,7 +18,7 @@ def plot_tif(tif_path, dst_path, bands=1, cmap="RdYlGn"):
     if type(bands) == list:
         data = data.transpose((1, 2, 0))
         
-    save_image(data, dst_path, cmap=cmap)
+    save_image(data, dst_path, cmap=cmap, vmin=vmin, vmax=vmax)
 
 
 def plot_bands(data, bands=[2, 1, 0], ax=None, transpose=False, cmap="RdYlGn"):
