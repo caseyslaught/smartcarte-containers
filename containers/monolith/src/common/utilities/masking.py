@@ -1,13 +1,11 @@
-import glob
 import numpy as np
-import numpy.ma as ma
-import os
 import rasterio
-import rioxarray
 from scipy.ndimage import maximum_filter
+import torch
 
 
-from common.constants import NODATA_UINT16
+from common.constants import NODATA_FLOAT32
+from common.utilities.imagery import write_array_to_tif
 
 
 ### buffer around masked values ###
@@ -38,8 +36,6 @@ def _get_potential_shadow(cloud_height, azimuth_rad, zenith_rad, cloud_mask, sca
         
     x_shift = round(np.cos(azimuth_rad) * shadow_vector / scale)
     y_shift = round(np.sin(azimuth_rad) * shadow_vector / scale)
-
-    print('\t\tx_shift:', x_shift, ', y_shift:', y_shift)
     
     shadows = np.roll(cloud_mask, y_shift, axis=0)
     shadows = np.roll(shadows, x_shift, axis=1)
@@ -64,20 +60,15 @@ def _get_cloud_shadow_mask(cloud_mask, azimuth, zenith, nir_array, scl_array):
     azimuth_rad = np.deg2rad(azimuth)
     zenith_rad = np.deg2rad(zenith)
         
-    cloud_heights = np.arange(400, 1200, 200) 
+    cloud_heights = np.arange(400, 1600, 200) 
     potential_shadow = np.array([
         _get_potential_shadow(cloud_height, azimuth_rad, zenith_rad, cloud_mask) 
         for cloud_height in cloud_heights
     ])
 
     potential_shadow = np.sum(potential_shadow, axis=0) > 0
-    
-    water = scl_array == 6
-    dark_pixels = (nir_array < 1500) & ~water
-    
-    shadow = potential_shadow & dark_pixels
-    
-    return shadow
+        
+    return potential_shadow
 
 
 ### SCL masking ###
@@ -96,70 +87,54 @@ def _get_scl_cloud_mask(scl):
     return mask
 
 
-def _get_bcy_cloud_mask(green, red):
-    
-    # (green > 0.175 AND NDGR > 0) OR (green > 0.39)
-       
-    ndgr = (green.astype(np.float32) - red.astype(np.float32)) / (green + red)
-    
-    cond1 = (green > 1750) & (ndgr > 0) 
-    cond2 = green > 3900
-    mask = cond1 | cond2
-    
-    return mask
-
-
 ### cloud masking coordinator ###
 
-def save_cloud_masked_images(scene_dict, dst_dir, overwrite=True):
+def apply_nn_cloud_mask(stack_tif_path, meta, dst_path, model_path, band_path=None):
     
-    if os.path.exists(f'{dst_dir}/B08_masked.tif') and not overwrite:
-        return {
-            band_name: f'{dst_dir}/{band_name}_masked.tif'
-            for band_name in scene_dict
-        }
-    
-    with rasterio.open(scene_dict['B03']) as green_src:
-        green_data = green_src.read(1, masked=True)
-
-    with rasterio.open(scene_dict['B04']) as red_src:
-        red_data = red_src.read(1, masked=True)
-    
-    with rasterio.open(scene_dict['B08']) as nir_src:
-        nir_data = nir_src.read(1, masked=True)
+    with rasterio.open(stack_tif_path) as src:
+        stack_data = src.read(masked=True)
+        bbox = list(src.bounds)
+                        
+    nir_data = stack_data[3, :, :]
+    scl_data = stack_data[-1, :, :]
         
-    with rasterio.open(scene_dict['SCL']) as scl_src:
-        scl_data = scl_src.read(1, masked=True)
+    image = stack_data[:-1, :, :]
+    saved_shape = image.shape
+
+    height_pad = 32 - (image.shape[1] % 32)
+    width_pad = 32 - (image.shape[2] % 32)
+    image = np.pad(image, ((0, 0), (0, height_pad), (0, width_pad)), mode='reflect')
+        
+    image = np.expand_dims(image, 0)
+    image = torch.tensor(image)
+        
+    # sometimes it is crashing here...
+    model = torch.load(model_path)
+    prediction = model.predict(image)
     
-    bcy_cloud_mask = _get_bcy_cloud_mask(green_data, red_data) 
+    print('\t\tprediction done')
+    probabilities = torch.sigmoid(prediction).cpu().numpy()
+    probabilities = probabilities[0, 0, :, :]
+    binary_prediction = (probabilities >= 0.50).astype(bool)
+    nn_cloud_mask = binary_prediction[:saved_shape[1], :saved_shape[2]]
+    
     scl_cloud_mask = _get_scl_cloud_mask(scl_data)
-    cloud_mask = bcy_cloud_mask | scl_cloud_mask
-
+    cloud_mask = nn_cloud_mask | scl_cloud_mask
+    
+    # calculate dark pixel masks
     bad_mask = _get_scl_bad_pixel_mask(scl_data)
-
-    meta = scene_dict['meta']
     cloud_shadow_mask = _get_cloud_shadow_mask(cloud_mask, meta["AZIMUTH_ANGLE"], meta["ZENITH_ANGLE"], nir_data, scl_data)
-
-    mask = cloud_mask | bad_mask | cloud_shadow_mask
-    mask = _buffer_mask(mask)
-
-    masked_dict = {}
-    for band_name in scene_dict:
-        if band_name in ["meta", "SCL"]: continue
-
-        band_path = scene_dict[band_name]
-        masked_path = f'{dst_dir}/{band_name}_masked.tif'
-        masked_dict[band_name] = masked_path
-           
-        with rasterio.open(band_path) as band_src:        
-            band_data = band_src.read(1)           
-            masked_data = ma.masked_array(band_data, mask=mask)
-                
-            zeroed_data = masked_data.data
-            zeroed_data[masked_data.mask] = NODATA_UINT16
-            
-            with rasterio.open(masked_path, "w", **band_src.profile) as masked_src:
-                masked_src.write(zeroed_data, 1)
-
-    return masked_dict
+        
+    # this is also taking a long time...but not too long
+    full_mask = cloud_mask | bad_mask | cloud_shadow_mask
+    full_mask = _buffer_mask(full_mask, radius=20)
+    
+    stack_data.mask = full_mask    
+    stack_data = stack_data[:-1, :, :]
+    stack_data = stack_data.transpose((1, 2, 0))
+    
+    write_array_to_tif(stack_data, dst_path, bbox, dtype=np.float32, epsg=4326, nodata=NODATA_FLOAT32)
+    
+    pct_masked = full_mask.sum() / full_mask.size
+    return pct_masked < 0.80
 

@@ -1,4 +1,3 @@
-from matplotlib import colors
 import matplotlib.pyplot as plt
 import rasterio
 

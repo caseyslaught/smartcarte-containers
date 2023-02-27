@@ -1,3 +1,4 @@
+import numpy as np
 import pyproj
 from shapely.geometry import box, shape
 from shapely.ops import transform as shapely_transform
@@ -35,5 +36,5 @@ def get_collection_bbox_coverage(collection, bbox):
     intersection_poly_ea = bbox_poly_ea.intersection(collection_poly_ea)
     intersection_pct = (intersection_poly_ea.area * 100) / bbox_poly_ea.area
 
-    return intersection_pct
+    return np.around(intersection_pct)
 

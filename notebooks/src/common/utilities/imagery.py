@@ -18,22 +18,6 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 ### imagery preparation ###
 
-def create_band_stack(band_name, tif_paths, dst_dir):
-    
-    with rasterio.open(tif_paths[0]) as meta_src:
-        meta = meta_src.meta.copy()
-
-    meta.update(count=len(tif_paths))
-
-    stack_path = f'{dst_dir}/{band_name}_stack.tif'
-    with rasterio.open(stack_path, 'w', **meta) as stack_dst:
-        for id, layer in enumerate(tif_paths, start=1):
-            with rasterio.open(layer) as lyr_src:
-                stack_dst.write_band(id, lyr_src.read(1))
-
-    return stack_path
-
-
 
 def create_blank_tif(bbox, dst_dir=None, dst_path=None, dtype=gdal.GDT_Float32, nbands=4, nodata=NODATA_FLOAT32, res=None):
         
@@ -71,31 +55,6 @@ def create_blank_tif(bbox, dst_dir=None, dst_path=None, dtype=gdal.GDT_Float32, 
     
     return dst_path
 
-
-def create_composite(band, stack_path, dst_dir, method="median"):
-    
-    composite_path = f'{dst_dir}/{band}_composite.tif' 
-    
-    if not os.path.exists(stack_path):
-        raise ValueError(f'{stack_path} does not exist')
-    
-    with rasterio.open(stack_path) as stack_src:
-        band_count = stack_src.count
-        meta = stack_src.meta.copy()
-        meta.update(count=1)
-        
-    stack = rioxarray.open_rasterio(stack_path, chunks=(band_count, 1000, 1000), masked=True)
-    
-    centre = stack.median(axis=0, skipna=True)
-    centre = np.rint(centre).astype(np.uint16)
-    centre = centre.compute()
-        
-    with rasterio.open(composite_path, "w", **meta) as composite_dst:
-        composite_dst.write(centre.data, indexes=1)
-
-    return composite_path
-
-            
             
 def create_composite_from_paths(stack_paths, dst_path, nodata=NODATA_FLOAT32):
     
@@ -143,15 +102,6 @@ def create_composite_from_paths(stack_paths, dst_path, nodata=NODATA_FLOAT32):
                 
     return True
     
-    
-def __merge_mean(merged_data, new_data, merged_mask, new_mask, index, roff, coff):    
-    new_data[new_mask] = np.nan
-    merged_data[merged_mask] = np.nan
-
-    # you need to update these inplace, not return something like docs say
-    merged_data[:] = np.nanmean(np.array([merged_data, new_data]), axis=0)
-    merged_mask[:] = merged_mask | new_mask
-
 
 def merge_scenes(scenes_dict, merged_path):
 

@@ -6,13 +6,14 @@ from shapely.geometry import shape
 from common.exceptions import EmptyCollectionException, IncompleteCoverageException, NotEnoughItemsException
 from common.constants import DAYS_BUFFER, MAX_CLOUD_COVER
 from common.utilities.api import get_forest_change_task_params, update_task_status, update_forest_change_task
-from common.utilities.download import get_collection, get_processed_composites
-from common.utilities.imagery import create_byte_vrt, create_map_tiles, create_tif, create_vrt
-from common.utilities.indices import create_ndvi
+from common.utilities.download import get_collection, get_processed_composite
+from common.utilities.imagery import create_map_tiles, create_rgb_byte_tif_from_composite
 from common.utilities.prediction import predict_forest, predict_forest_change
 from common.utilities.upload import get_tiles_cdn_url, save_task_file_to_s3, save_task_tiles_to_s3
 from common.utilities.visualization import plot_tif
 
+
+CLOUD_DETECTION_MODEL_PATH = "./common/models/best_resnet18_dice_cloud_detection.pth"
 
 
 def handle():
@@ -36,7 +37,6 @@ def handle():
         os.makedirs(f'{base_dir}/after', exist_ok=True)
         os.makedirs(f'{base_dir}/results', exist_ok=True)
 
-
         ### prepare parameters ###
 
         params = get_forest_change_task_params(task_uid)
@@ -56,12 +56,12 @@ def handle():
             raise ValueError("invalid geojson type") # TODO: figure out proper logging!
 
         bbox = region.bounds
-
         print("bbox:", bbox)
 
 
         ### get collections ###         
 
+        # loop through cloud cover until we get a complete collection
         before_cloud_cover = 5
         while True:
 
@@ -106,85 +106,44 @@ def handle():
 
         # before
 
-        before_composites = get_processed_composites(before_collection, bbox, before_dir)
-        before_all_band_paths = list(before_composites.values())
-        before_rgb_band_paths = [before_composites['B04'], before_composites['B03'], before_composites['B02']]
+        before_composite_path = get_processed_composite(before_collection, bbox, before_dir, CLOUD_DETECTION_MODEL_PATH)
+
+        before_rgb_path = f'{before_dir}/rgb_byte.tif'
+        create_rgb_byte_tif_from_composite(before_composite_path, before_rgb_path, is_cog=True)
         
-        before_all_uint16_vrt_path = f'{before_dir}/all_uint16.vrt'
-        create_vrt(before_all_band_paths, before_all_uint16_vrt_path)
-
-        before_all_uint16_cog_path = f'{before_dir}/all_uint16_cog.tif'
-        create_tif(before_all_uint16_vrt_path, before_all_uint16_cog_path, isCog=True)
-
-        before_rgb_uint16_vrt_path = f'{before_dir}/rgb_uint16.vrt'
-        create_vrt(before_rgb_band_paths, before_rgb_uint16_vrt_path)
-
-        before_rgb_byte_vrt_path = f'{before_dir}/rgb_byte.vrt'
-        create_byte_vrt(before_rgb_uint16_vrt_path, before_rgb_byte_vrt_path)
-
-        before_rgb_byte_cog_path = f'{before_dir}/rgb_byte_cog.tif'
-        create_tif(before_rgb_byte_vrt_path, before_rgb_byte_cog_path, isCog=True)
-
         before_tiles_dir = f'{before_dir}/rgb_byte_tiles'
-        create_map_tiles(before_rgb_byte_vrt_path, before_tiles_dir, max_zoom=tile_max_zoom)
+        create_map_tiles(before_rgb_path, before_tiles_dir, max_zoom=tile_max_zoom)
 
         # after
 
-        after_composites = get_processed_composites(after_collection, bbox, after_dir)
-        after_all_band_paths = list(after_composites.values())
-        after_rgb_band_paths = [after_composites['B04'], after_composites['B03'], after_composites['B02']]
+        after_composite_path = get_processed_composite(after_collection, bbox, after_dir, CLOUD_DETECTION_MODEL_PATH)
 
-        after_all_uint16_vrt_path = f'{after_dir}/all_uint16.vrt'
-        create_vrt(after_all_band_paths, after_all_uint16_vrt_path)
-
-        after_all_uint16_cog_path = f'{after_dir}/all_uint16_cog.tif'
-        create_tif(after_all_uint16_vrt_path, after_all_uint16_cog_path, isCog=True)
-
-        after_rgb_uint16_vrt_path = f'{after_dir}/rgb_uint16.vrt'
-        create_vrt(after_rgb_band_paths, after_rgb_uint16_vrt_path)
-
-        after_rgb_byte_vrt_path = f'{after_dir}/rgb_byte.vrt'
-        create_byte_vrt(after_rgb_uint16_vrt_path, after_rgb_byte_vrt_path)
-
-        after_rgb_byte_cog_path = f'{after_dir}/rgb_byte_cog.tif'
-        create_tif(after_rgb_byte_vrt_path, after_rgb_byte_cog_path, isCog=True)
-
+        after_rgb_path = f'{after_dir}/rgb_byte.tif'
+        create_rgb_byte_tif_from_composite(after_composite_path, after_rgb_path, is_cog=True)
+        
         after_tiles_dir = f'{after_dir}/rgb_byte_tiles'
-        create_map_tiles(after_rgb_byte_vrt_path, after_tiles_dir, max_zoom=tile_max_zoom)
+        create_map_tiles(after_rgb_path, after_tiles_dir, max_zoom=tile_max_zoom)
 
 
         ### upload assets to S3 ###
 
-        save_task_file_to_s3(before_rgb_byte_cog_path, "before", task_uid)
-        save_task_file_to_s3(after_rgb_byte_cog_path, "after", task_uid)
+        save_task_file_to_s3(before_rgb_path, "before", task_uid)
+        save_task_file_to_s3(after_rgb_path, "after", task_uid)
 
-        save_task_file_to_s3(before_all_uint16_cog_path, "before", task_uid)
-        save_task_file_to_s3(after_all_uint16_cog_path, "after", task_uid)
+        save_task_file_to_s3(before_composite_path, "before", task_uid)
+        save_task_file_to_s3(after_composite_path, "after", task_uid)
 
         before_tiles_s3_dir = save_task_tiles_to_s3(before_tiles_dir, "before", task_uid)
         after_tiles_s3_dir = save_task_tiles_to_s3(after_tiles_dir, "after", task_uid)
 
 
-        ### feature engineering ###
-
-        # NDVI
-
-        before_ndvi_path = f'{before_dir}/ndvi.tif'
-        create_ndvi(before_composites['B04'], before_composites['B08'], before_ndvi_path)
-        before_composites['NDVI'] = before_ndvi_path
-
-        after_ndvi_path = f'{after_dir}/ndvi.tif'
-        create_ndvi(after_composites['B04'], after_composites['B08'], after_ndvi_path)
-        after_composites['NDVI'] = after_ndvi_path
-
-
         ### model predictions ###
 
         before_prediction_path = f'{before_dir}/forest.tif'
-        predict_forest(before_composites, before_prediction_path)
+        predict_forest(before_composite_path, before_prediction_path)
 
         after_prediction_path = f'{after_dir}/forest.tif'
-        predict_forest(after_composites, after_prediction_path)
+        predict_forest(after_composite_path, after_prediction_path)
 
         change_path = f'{results_dir}/change.tif'
         predict_forest_change(before_prediction_path, after_prediction_path, change_path)
@@ -196,10 +155,10 @@ def handle():
         ### produce visualizations ###
 
         before_rgb_plot = f'{before_dir}/rgb.png'
-        plot_tif(before_rgb_byte_cog_path, before_rgb_plot, bands=[1, 2, 3], cmap=None)
+        plot_tif(before_rgb_path, before_rgb_plot, bands=[1, 2, 3], cmap=None)
 
         after_rgb_plot = f'{after_dir}/rgb.png'
-        plot_tif(after_rgb_byte_cog_path, after_rgb_plot, bands=[1, 2, 3], cmap=None)
+        plot_tif(after_rgb_path, after_rgb_plot, bands=[1, 2, 3], cmap=None)
 
         before_prediction_plot = f'{before_dir}/forest.png'
         plot_tif(before_prediction_path, before_prediction_plot, bands=1, cmap='RdYlGn')
@@ -253,7 +212,5 @@ def handle():
     print("complete")
 
 
-
 if __name__ == "__main__":
     handle()
-

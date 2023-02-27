@@ -2,35 +2,36 @@ import numpy as np
 import rasterio
 
 
-from common.constants import NODATA_BYTE, NODATA_INT8
+from common.constants import NODATA_BYTE
+from common.utilities.imagery import write_array_to_tif
 
 
-def predict_forest(band_dict, dst_path):
+def predict_forest(composite_path, dst_path):
 
-    with rasterio.open(band_dict['NDVI']) as ndvi_src:
-        ndvi_data = ndvi_src.read(1, masked=True)
-        meta = ndvi_src.meta.copy()
-        meta['dtype'] = 'int8'
-        meta['nodata'] = NODATA_INT8
+    with rasterio.open(composite_path) as src:
+        bbox = list(src.bounds)
+        composite_data = src.read(masked=True)
+    
+    red = composite_data[2, :, :]
+    nir = composite_data[3, :, :]
+    ndvi = (nir - red) / (nir + red) # this should be okay because they're already floats
 
-    is_forest = (ndvi_data > 0.70)
-    not_forest = (ndvi_data < 0.30)
+    is_forest = (ndvi > 0.70)
+    not_forest = (ndvi < 0.30)
 
-    forest_data = np.full(ndvi_data.shape, 0)
-    forest_data[is_forest] = 1
-    forest_data[not_forest] = -1
-    forest_data[ndvi_data.mask] = NODATA_INT8
-    forest_data = forest_data.astype(np.int8)
+    forest_data = np.full(ndvi.shape, 50).astype(np.uint8)
+    forest_data[is_forest] = 100
+    forest_data[not_forest] = 0
+    forest_data[ndvi.mask] = NODATA_BYTE
 
-    with rasterio.open(dst_path, "w", **meta) as forest_dst:
-        forest_dst.write(forest_data, indexes=1)
+    write_array_to_tif(forest_data, dst_path, bbox, dtype=np.uint8, nodata=NODATA_BYTE, is_cog=True)
 
 
 def predict_forest_change(before_forest_path, after_forest_path, dst_path):
     
     with rasterio.open(before_forest_path) as before_src:
         before_forest = before_src.read(1, masked=True)
-        meta = before_src.meta.copy()
+        bbox = list(before_src.bounds)
 
     with rasterio.open(after_forest_path) as after_src:
         after_forest = after_src.read(1, masked=True)
@@ -38,13 +39,10 @@ def predict_forest_change(before_forest_path, after_forest_path, dst_path):
     gain = (after_forest - before_forest) > 1.0
     loss = (after_forest - before_forest) < -1.0
 
-    change = np.full(before_forest.shape, 0)
-    change[gain] = 1
-    change[loss] = -1
-    change[gain.mask] = NODATA_INT8
-    change = change.astype(np.int8)
+    change = np.full(before_forest.shape, 50).astype(np.uint8)
+    change[gain] = 100
+    change[loss] = 0
+    change[gain.mask] = NODATA_BYTE
 
-    with rasterio.open(dst_path, "w", **meta) as change_dst:
-        change_dst.write(change, indexes=1)
-
+    write_array_to_tif(change, dst_path, bbox, dtype=np.uint8, nodata=NODATA_BYTE, is_cog=True)
 

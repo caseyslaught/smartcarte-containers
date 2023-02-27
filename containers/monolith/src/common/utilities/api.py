@@ -1,8 +1,6 @@
-from multiprocessing.sharedctypes import Value
 import requests
 
-
-API_BASE_URL = 'https://api.smartcarte.earth'
+from common.constants import API_BASE_URL
 
 
 def get_forest_change_task_params(task_uid):
@@ -33,7 +31,6 @@ def update_task_status(task_uid, task_type, status, message=None):
         raise ValueError(res.text)
 
 
-
 def update_forest_change_task(task_uid, **kwargs):
 
     data = {
@@ -51,6 +48,5 @@ def update_forest_change_task(task_uid, **kwargs):
     
     if res.status_code != 200:
         raise ValueError(res.text)
-
 
 

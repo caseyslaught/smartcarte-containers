@@ -3,13 +3,11 @@ import numpy as np
 import numpy.ma as ma
 import os
 import rasterio
-import rioxarray
 from scipy.ndimage import maximum_filter
 import torch
-import torch.nn as nn
 
 
-from common.constants import NODATA_UINT16, NODATA_FLOAT32
+from common.constants import NODATA_FLOAT32
 from common.utilities.imagery import write_array_to_tif
 
 
@@ -169,8 +167,6 @@ def apply_nn_cloud_mask(stack_tif_path, meta, dst_path, model_path, band_path=No
     # sometimes it is crashing here...
     model = torch.load(model_path)
     prediction = model.predict(image)
-    
-    
     
     print('\t\tprediction done')
     probabilities = torch.sigmoid(prediction).cpu().numpy()
