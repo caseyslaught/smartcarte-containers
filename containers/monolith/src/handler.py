@@ -18,8 +18,8 @@ CLOUD_DETECTION_MODEL_PATH = "./common/models/best_resnet18_dice_cloud_detection
 
 def handle():
 
-    task_uid = os.environ['TASK_UID']
-    task_type = os.environ['TASK_TYPE']
+    task_uid = os.environ['TASK_UID'].strip()
+    task_type = os.environ['TASK_TYPE'].strip()
     tile_max_zoom = 14
 
     base_dir = f"/tmp/{task_uid}"

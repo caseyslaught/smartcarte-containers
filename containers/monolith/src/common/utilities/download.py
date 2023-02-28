@@ -57,7 +57,6 @@ def get_collection(start_date, end_date, bbox, dst_path, max_cloud_cover=20, max
 
     for square in items_count:
         if items_count[square] < min_tile_count:
-            print(items_count)
             raise NotEnoughItemsException(f'only {items_count[square]} items for square {square} with cloud cover {max_cloud_cover}%')
 
     bbox_coverage = get_collection_bbox_coverage(collection, bbox)
@@ -141,7 +140,7 @@ def download_collection(collection, bbox, bands, dst_dir, res):
     scenes = {}
     for item in list(collection):
         
-        print(f'\tdownloading... {item.id}')
+        print(f'\t... {item.id}')
 
         scenes[item.id] = {}
         band_hrefs = [item.assets[band].href for band in bands]

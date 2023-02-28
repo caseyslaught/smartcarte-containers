@@ -20,12 +20,14 @@ def update_task_status(task_uid, task_type, status, message=None):
 
     url = f'{API_BASE_URL}/tasks/update_task_status/'
 
-    res = requests.post(url, {
+    options = {
         "task_uid": task_uid,
         "task_type": task_type,
         "status": status,
         "message": message
-    })
+    }
+
+    res = requests.post(url, options)
 
     if res.status_code != 200:
         raise ValueError(res.text)

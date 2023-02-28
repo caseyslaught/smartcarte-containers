@@ -182,6 +182,18 @@ RUN \
 FROM sc_monolith_5 as sc_monolith_6
 
 
+RUN pip install torch --extra-index-url https://download.pytorch.org/whl/cpu
+
+
+FROM sc_monolith_6 as sc_monolith_7
+
+
+RUN pip install segmentation_models_pytorch
+
+
+FROM sc_monolith_7 as sc_monolith_8
+
+
 COPY src ${LAMBDA_TASK_ROOT}/src
 
 COPY .aws /root/.aws

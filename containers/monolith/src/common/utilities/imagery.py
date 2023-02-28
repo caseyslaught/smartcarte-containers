@@ -18,7 +18,7 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 def merge_scenes(scenes_dict, merged_path):
     
     if len(scenes_dict) == 1:
-        print('only one scene to merge; copying')
+        print('\tonly one scene to merge; copying')
         only_path = list(scenes_dict.values())[0]
         shutil.copy2(only_path, merged_path)
         return
@@ -43,6 +43,9 @@ def merge_scenes(scenes_dict, merged_path):
 ### normalization ###
 
 def normalize_3d_array_percentiles(data, p_low=1, p_high=99):
+
+    assert data.ndim == 3, 'data must be a 3D array'
+
     # data.shape = (c, h, w)
     data[data.mask] = np.nan   
     norm_data = np.zeros_like(data)

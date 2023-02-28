@@ -53,7 +53,7 @@ def _get_potential_shadow(cloud_height, azimuth_rad, zenith_rad, cloud_mask, sca
     return shadows
 
 
-def _get_cloud_shadow_mask(cloud_mask, azimuth, zenith, nir_array, scl_array):
+def _get_cloud_shadow_mask(cloud_mask, azimuth, zenith):
 
     # solar azimuth is opposite of illumination direction plus another 90 for the S2 instrument
     azimuth = azimuth - 270   
@@ -89,13 +89,12 @@ def _get_scl_cloud_mask(scl):
 
 ### cloud masking coordinator ###
 
-def apply_nn_cloud_mask(stack_tif_path, meta, dst_path, model_path, band_path=None):
+def apply_nn_cloud_mask(stack_tif_path, meta, dst_path, model_path):
     
     with rasterio.open(stack_tif_path) as src:
         stack_data = src.read(masked=True)
         bbox = list(src.bounds)
                         
-    nir_data = stack_data[3, :, :]
     scl_data = stack_data[-1, :, :]
         
     image = stack_data[:-1, :, :]
@@ -123,7 +122,7 @@ def apply_nn_cloud_mask(stack_tif_path, meta, dst_path, model_path, band_path=No
     
     # calculate dark pixel masks
     bad_mask = _get_scl_bad_pixel_mask(scl_data)
-    cloud_shadow_mask = _get_cloud_shadow_mask(cloud_mask, meta["AZIMUTH_ANGLE"], meta["ZENITH_ANGLE"], nir_data, scl_data)
+    cloud_shadow_mask = _get_cloud_shadow_mask(cloud_mask, meta["AZIMUTH_ANGLE"], meta["ZENITH_ANGLE"])
         
     # this is also taking a long time...but not too long
     full_mask = cloud_mask | bad_mask | cloud_shadow_mask
