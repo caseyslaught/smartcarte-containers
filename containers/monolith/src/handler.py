@@ -114,6 +114,9 @@ def handle():
         before_tiles_dir = f'{before_dir}/rgb_byte_tiles'
         create_map_tiles(before_rgb_path, before_tiles_dir, max_zoom=tile_max_zoom)
 
+        # TODO: maybe upload before things here...
+
+
         # after
 
         after_composite_path = get_processed_composite(after_collection, bbox, after_dir, CLOUD_DETECTION_MODEL_PATH)
@@ -144,6 +147,9 @@ def handle():
 
         after_prediction_path = f'{after_dir}/forest.tif'
         predict_forest(after_composite_path, after_prediction_path)
+
+        # FIXME: ValueError: operands could not be broadcast together with shapes (2345,2785) (2345,2786)	
+        # before and after predictions are slightly different shape :(
 
         change_path = f'{results_dir}/change.tif'
         predict_forest_change(before_prediction_path, after_prediction_path, change_path)
