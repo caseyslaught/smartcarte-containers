@@ -130,17 +130,18 @@ def download_bbox(bbox, cog_url, read_all=False):
         else:
             s3_data = s3_src.read(1, masked=True, window=window).astype(np.uint16)
     
-    return s3_data
+        return (s3_data, rasterio.windows.transform(window, s3_src.transform))
+
 
 
 def download_collection(collection, bbox, bands, dst_dir, res):
 
     bbox_poly_ll = box(*bbox)
-
+       
     scenes = {}
     for item in list(collection):
         
-        print(f'\t... {item.id}')
+        print(f'\tdownloading... {item.id}')
 
         scenes[item.id] = {}
         band_hrefs = [item.assets[band].href for band in bands]
@@ -148,24 +149,26 @@ def download_collection(collection, bbox, bands, dst_dir, res):
         
         # reproject bbox into UTM zone of S2 scene 
         item_epsg_int = int(item.properties["proj:epsg"])
-        item_epsg_str = f'EPSG:{item_epsg_int}'
-        bbox_sw_utm = reproject_shape(Point(bbox[0], bbox[1]), init_proj="EPSG:4326", target_proj=item_epsg_str)
-        bbox_ne_utm = reproject_shape(Point(bbox[2], bbox[3]), init_proj="EPSG:4326", target_proj=item_epsg_str)
-        bbox_utm = [bbox_sw_utm.x, bbox_sw_utm.y, bbox_ne_utm.x, bbox_ne_utm.y]
+        item_epsg_str = f'EPSG:{item_epsg_int}'       
         
         # get intersection of bbox and S2 scene for windowed read
         scene_poly_ll = shape(item.geometry) # polygon of the entire scene
         overlap_poly_ll = bbox_poly_ll.intersection(scene_poly_ll) # polygon of intersection between entire scene and bbox
-
-        overlap_bbox_ll = overlap_poly_ll.bounds
-                        
+        
+        overlap_poly_utm = reproject_shape(overlap_poly_ll, init_proj="EPSG:4326", target_proj=item_epsg_str)
+        overlap_bbox_utm = np.round(overlap_poly_utm.bounds  , -1)        
+        overlap_poly_utm = box(*overlap_bbox_utm)
+        
+        overlap_poly_ll = reproject_shape(overlap_poly_utm, init_proj=item_epsg_str, target_proj="EPSG:4326")
+        overlap_bbox_ll = list(overlap_poly_ll.bounds)
+        
         scene_dir = f'{dst_dir}/{item.id}'
         stack_original_tif_path = f'{scene_dir}/stack_original.tif'
         
         ### TESTING ###
-        if os.path.exists(stack_original_tif_path):
-            scenes[item.id]['stack_original_tif_path'] = stack_original_tif_path
-            continue
+        #if os.path.exists(stack_original_tif_path):
+        #    scenes[item.id]['stack_original_tif_path'] = stack_original_tif_path
+        #    continue
 
         if not os.path.exists(scene_dir):
             os.mkdir(scene_dir)
@@ -175,13 +178,12 @@ def download_collection(collection, bbox, bands, dst_dir, res):
             band_name = s3_href.split('/')[-1].split('.')[0]
             band_path = f'{scene_dir}/{band_name}.tif'
             
-            s3_data = download_bbox(bbox_utm, s3_href)
+            s3_data, s3_transform = download_bbox(overlap_bbox_utm, s3_href)
             s3_data = normalize_original_s2_array(s3_data)
-            
-            # writing to item EPSG first does not seem to help with alignment
-            write_array_to_tif(s3_data, band_path, overlap_bbox_ll, dtype=np.float32, epsg=4326, nodata=NODATA_FLOAT32, is_cog=False)
+                                    
+            write_array_to_tif(s3_data, band_path, overlap_bbox_utm, dtype=np.float32, epsg=item_epsg_int, nodata=NODATA_FLOAT32, transform=s3_transform)
             gdal.Warp(band_path, band_path, dstSRS="EPSG:4326", xRes=res, yRes=res, outputBounds=overlap_bbox_ll)
-
+            
             band_tif_paths.append(band_path)
             
         stack_data = []
@@ -191,10 +193,10 @@ def download_collection(collection, bbox, bands, dst_dir, res):
                 
         stack_data = np.array(stack_data).transpose((1, 2, 0))     
         write_array_to_tif(stack_data, stack_original_tif_path, overlap_bbox_ll, dtype=np.float32, epsg=4326, nodata=NODATA_FLOAT32)        
-        # gdal.Warp(stack_original_tif_path, stack_original_tif_path, dstSRS="EPSG:4326", xRes=res, yRes=res, outputBounds=overlap_bbox_ll)                        
 
         scenes[item.id]['stack_original_tif_path'] = stack_original_tif_path
 
     return scenes
+
 
 
