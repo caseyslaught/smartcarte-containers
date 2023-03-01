@@ -230,7 +230,7 @@ def write_array_to_tif(data, dst_path, bbox, dtype=np.float32, epsg=4326, nodata
             bbox[2], bbox[3], 
             width, height
         )
-
+        
     count = 1 if data.ndim == 2 else data.shape[2]
         
     meta = {

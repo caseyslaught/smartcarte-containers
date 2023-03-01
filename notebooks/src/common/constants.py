@@ -9,6 +9,7 @@ NODATA_FLOAT32 = -9999
 S2_BANDS_TIFF_ORDER = ['B02', 'B03', 'B04', 'B08', 'SCL'] # make sure SCL last
 
 S3_DATA_BUCKET = 'smartcarte-data'
+S3_MODELS_BUCKET = 'smartcarte-models'
 
 API_BASE_URL = 'https://api.smartcarte.earth'
 
