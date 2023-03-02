@@ -150,6 +150,7 @@ def handle():
 
         # FIXME: ValueError: operands could not be broadcast together with shapes (2345,2785) (2345,2786)	
         # before and after predictions are slightly different shape :(
+        # maybe GDAL warp with bounds, that usually fixes it, or do that at earlier stage?
 
         change_path = f'{results_dir}/change.tif'
         predict_forest_change(before_prediction_path, after_prediction_path, change_path)
