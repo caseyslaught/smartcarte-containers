@@ -56,7 +56,7 @@ def _get_potential_shadow(cloud_height, azimuth_rad, zenith_rad, cloud_mask, sca
     return shadows
 
 
-def _get_cloud_shadow_mask(cloud_mask, azimuth, zenith, nir_array, scl_array):
+def _get_cloud_shadow_mask(cloud_mask, azimuth, zenith):
 
     # solar azimuth is opposite of illumination direction plus another 90 for the S2 instrument
     azimuth = azimuth - 270   
@@ -71,10 +71,7 @@ def _get_cloud_shadow_mask(cloud_mask, azimuth, zenith, nir_array, scl_array):
 
     potential_shadow = np.sum(potential_shadow, axis=0) > 0
     
-    # water = scl_array == 6
-    # dark_pixels = (nir_array < 0.25) & ~water
-    
-    shadow = potential_shadow # & dark_pixels
+    shadow = potential_shadow
     
     return shadow
 
@@ -151,20 +148,19 @@ def apply_nn_cloud_mask(stack_tif_path, meta, dst_path, model_path, band_path=No
         stack_data = src.read(masked=True)
         bbox = list(src.bounds)
                         
-    nir_data = stack_data[3, :, :]
     scl_data = stack_data[-1, :, :]
         
     image = stack_data[:-1, :, :]
+    image = image.filled(-1.0) # converst to ndarray and fills masked values with -1.0
     saved_shape = image.shape
 
     height_pad = 32 - (image.shape[1] % 32)
     width_pad = 32 - (image.shape[2] % 32)
     image = np.pad(image, ((0, 0), (0, height_pad), (0, width_pad)), mode='reflect')
-        
+            
     image = np.expand_dims(image, 0)
     image = torch.tensor(image)
         
-    # sometimes it is crashing here...
     model = torch.load(model_path)
     prediction = model.predict(image)
     
@@ -179,7 +175,7 @@ def apply_nn_cloud_mask(stack_tif_path, meta, dst_path, model_path, band_path=No
     
     # calculate dark pixel masks
     bad_mask = _get_scl_bad_pixel_mask(scl_data)
-    cloud_shadow_mask = _get_cloud_shadow_mask(cloud_mask, meta["AZIMUTH_ANGLE"], meta["ZENITH_ANGLE"], nir_data, scl_data)
+    cloud_shadow_mask = _get_cloud_shadow_mask(cloud_mask, meta["AZIMUTH_ANGLE"], meta["ZENITH_ANGLE"])
         
     # this is also taking a long time...but not too long
     full_mask = cloud_mask | bad_mask | cloud_shadow_mask
