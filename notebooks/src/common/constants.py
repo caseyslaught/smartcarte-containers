@@ -14,3 +14,7 @@ S3_MODELS_BUCKET = 'smartcarte-models'
 API_BASE_URL = 'https://api.smartcarte.earth'
 
 DATA_CDN_BASE_URL = 'https://data.smartcarte.earth'
+
+
+RES_METERS = 10
+RES = RES_METERS / (111.32 * 1000)

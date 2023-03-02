@@ -137,17 +137,28 @@ def merge_stack_with_blank(stack_path, blank_path, bbox, res, merged_path=None):
     return merged_path   
 
     
-def normalize_3d_array_percentiles(data, p_low=1, p_high=99):
+def normalize_3d_array_percentiles(data, p_low=1, p_high=99, is_transposed=False):
     # data.shape = (c, h, w)
     
-    data[data.mask] = np.nan   
+    if np.ma.is_masked(data):
+        data = data.filled(np.nan)
+            
     norm_data = np.zeros_like(data)
-    p1, p99 = np.nanpercentile(data.data, [p_low, p_high], axis=[1, 2])
     
+    if is_transposed:
+        p1, p99 = np.nanpercentile(data, [p_low, p_high], axis=[0, 1])
+    else:
+        p1, p99 = np.nanpercentile(data, [p_low, p_high], axis=[1, 2])
+        
     for i in range(p1.shape[0]):
-        band_data = np.clip(data[i, :, :], p1[i], p99[i])
-        band_data = (band_data - p1[i]) / (p99[i] - p1[i])
-        norm_data[i, :, :] = band_data
+        if is_transposed:
+            band_data = np.clip(data[:, :, i], p1[i], p99[i])
+            band_data = (band_data - p1[i]) / (p99[i] - p1[i])
+            norm_data[:, :, i] = band_data
+        else:
+            band_data = np.clip(data[i, :, :], p1[i], p99[i])
+            band_data = (band_data - p1[i]) / (p99[i] - p1[i])
+            norm_data[i, :, :] = band_data
     
     return norm_data
 

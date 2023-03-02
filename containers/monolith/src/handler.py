@@ -13,14 +13,14 @@ from common.utilities.upload import get_tiles_cdn_url, save_task_file_to_s3, sav
 from common.utilities.visualization import plot_tif
 
 
-CLOUD_DETECTION_MODEL_PATH = "./common/models/best_resnet18_dice_cloud_detection.pth"
+CLOUD_DETECTION_MODEL_PATH = "./common/models/cloud_detection_model_resnet18_dice_20230301.pth"
 
 
 def handle():
 
     task_uid = os.environ['TASK_UID'].strip()
     task_type = os.environ['TASK_TYPE'].strip()
-    tile_max_zoom = 14
+    tile_max_zoom = 12
 
     base_dir = f"/tmp/{task_uid}"
 
@@ -58,8 +58,6 @@ def handle():
         bbox = region.bounds
         print("bbox:", bbox)
 
-        raise
-
         ### get collections ###         
 
         # loop through cloud cover until we get a complete collection
@@ -68,8 +66,10 @@ def handle():
 
             try:
                 before_collection = get_collection(
-                    before_date_begin,  before_date_end, 
-                    bbox, f'{base_dir}/before/s2_collection.json', 
+                    before_date_begin,  
+                    before_date_end, 
+                    bbox, 
+                    f'{base_dir}/before/s2_collection.json', 
                     max_cloud_cover=before_cloud_cover)
             except (EmptyCollectionException, IncompleteCoverageException, NotEnoughItemsException) as e:
                 print(e)
@@ -85,8 +85,10 @@ def handle():
         while True:
             try:
                 after_collection = get_collection(
-                    after_date_begin, after_date_end, 
-                    bbox, f'{base_dir}/after/s2_collection.json', 
+                    after_date_begin, 
+                    after_date_end, 
+                    bbox, 
+                    f'{base_dir}/after/s2_collection.json', 
                     max_cloud_cover=after_cloud_cover)
             except (EmptyCollectionException, IncompleteCoverageException, NotEnoughItemsException) as e:
                 print(e)
@@ -115,7 +117,11 @@ def handle():
         before_tiles_dir = f'{before_dir}/rgb_byte_tiles'
         create_map_tiles(before_rgb_path, before_tiles_dir, max_zoom=tile_max_zoom)
 
-        # TODO: maybe upload before things here...
+        ### upload before assets to S3 ###
+
+        save_task_file_to_s3(before_rgb_path, "before", task_uid)
+        save_task_file_to_s3(before_composite_path, "before", task_uid)
+        before_tiles_s3_dir = save_task_tiles_to_s3(before_tiles_dir, "before", task_uid)
 
 
         # after
@@ -129,15 +135,10 @@ def handle():
         create_map_tiles(after_rgb_path, after_tiles_dir, max_zoom=tile_max_zoom)
 
 
-        ### upload assets to S3 ###
+        ### upload after assets to S3 ###
 
-        save_task_file_to_s3(before_rgb_path, "before", task_uid)
         save_task_file_to_s3(after_rgb_path, "after", task_uid)
-
-        save_task_file_to_s3(before_composite_path, "before", task_uid)
         save_task_file_to_s3(after_composite_path, "after", task_uid)
-
-        before_tiles_s3_dir = save_task_tiles_to_s3(before_tiles_dir, "before", task_uid)
         after_tiles_s3_dir = save_task_tiles_to_s3(after_tiles_dir, "after", task_uid)
 
 
@@ -149,12 +150,8 @@ def handle():
         after_prediction_path = f'{after_dir}/forest.tif'
         predict_forest(after_composite_path, after_prediction_path)
 
-        # FIXME: ValueError: operands could not be broadcast together with shapes (2345,2785) (2345,2786)	
-        # before and after predictions are slightly different shape :(
-        # maybe GDAL warp with bounds, that usually fixes it, or do that at earlier stage?
-
         change_path = f'{results_dir}/change.tif'
-        predict_forest_change(before_prediction_path, after_prediction_path, change_path)
+        change_results = predict_forest_change(before_prediction_path, after_prediction_path, change_path)
 
         change_tiles_dir = f'{results_dir}/change_tiles'
         create_map_tiles(change_path, change_tiles_dir)
@@ -195,14 +192,13 @@ def handle():
 
         update_forest_change_task(
             task_uid,
-            gain_area=100,
-            loss_area=80,
-            total_area=520,
+            gain_area=int(change_results['gain_ha']),
+            loss_area=int(change_results['loss_ha']),
+            total_area=int(change_results['total_ha']),
             before_rgb_tiles_href=get_tiles_cdn_url(before_tiles_s3_dir),
             after_rgb_tiles_href=get_tiles_cdn_url(after_tiles_s3_dir),
             change_tiles_href=get_tiles_cdn_url(change_tiles_s3_dir),
         )
-
 
     elif task_type == "burn_areas":
         pass

@@ -155,6 +155,7 @@ def download_collection(collection, bbox, bands, dst_dir, res):
         scene_poly_ll = shape(item.geometry) # polygon of the entire scene
         overlap_poly_ll = bbox_poly_ll.intersection(scene_poly_ll) # polygon of intersection between entire scene and bbox
         
+        # reproject overlap polygon into UTM and round to nearest 10 meter
         overlap_poly_utm = reproject_shape(overlap_poly_ll, init_proj="EPSG:4326", target_proj=item_epsg_str)
         overlap_bbox_utm = np.round(overlap_poly_utm.bounds  , -1)        
         overlap_poly_utm = box(*overlap_bbox_utm)

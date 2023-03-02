@@ -36,6 +36,22 @@ def predict_forest_change(before_forest_path, after_forest_path, dst_path):
     with rasterio.open(after_forest_path) as after_src:
         after_forest = after_src.read(1, masked=True)
 
+    print('before_forest.shape', before_forest.shape)
+    print('after_forest.shape', after_forest.shape)
+
+    # if before width is less than after width
+    if before_forest.shape[1] < after_forest.shape[1]:
+        after_forest = after_forest[:, :before_forest.shape[1]]
+    # if before width is greater than after width
+    elif before_forest.shape[1] > after_forest.shape[1]:
+        before_forest = before_forest[:, :after_forest.shape[1]]
+    # if before height is less than after height
+    elif before_forest.shape[0] < after_forest.shape[0]:
+        after_forest = after_forest[:before_forest.shape[0], :]
+    # if before height is greater than after height
+    elif before_forest.shape[0] > after_forest.shape[0]:
+        before_forest = before_forest[:after_forest.shape[0], :]
+
     gain = (after_forest - before_forest) > 1.0
     loss = (after_forest - before_forest) < -1.0
 
@@ -45,4 +61,10 @@ def predict_forest_change(before_forest_path, after_forest_path, dst_path):
     change[gain.mask] = NODATA_BYTE
 
     write_array_to_tif(change, dst_path, bbox, dtype=np.uint8, nodata=NODATA_BYTE, is_cog=True)
+
+    return {
+        'gain_ha': np.count_nonzero(gain) * 0.01,
+        'loss_ha': np.count_nonzero(loss) * 0.01,
+        'total_ha':  np.count_nonzero(change != NODATA_BYTE) * 0.01
+    }
 

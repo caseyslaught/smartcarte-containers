@@ -98,6 +98,7 @@ def apply_nn_cloud_mask(stack_tif_path, meta, dst_path, model_path):
     scl_data = stack_data[-1, :, :]
         
     image = stack_data[:-1, :, :]
+    image = image.filled(-1.0) # fill masked values with -1.0
     saved_shape = image.shape
 
     height_pad = 32 - (image.shape[1] % 32)
@@ -107,7 +108,6 @@ def apply_nn_cloud_mask(stack_tif_path, meta, dst_path, model_path):
     image = np.expand_dims(image, 0)
     image = torch.tensor(image)
         
-    # sometimes it is crashing here...
     model = torch.load(model_path)
     prediction = model.predict(image)
     
@@ -135,6 +135,6 @@ def apply_nn_cloud_mask(stack_tif_path, meta, dst_path, model_path):
     write_array_to_tif(stack_data, dst_path, bbox, dtype=np.float32, epsg=4326, nodata=NODATA_FLOAT32)
     
     pct_masked = full_mask.sum() / full_mask.size
-    print(pct_masked)
+    print('\t', pct_masked)
     return pct_masked < 0.90
 

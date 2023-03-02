@@ -1,7 +1,4 @@
-import glob
 import numpy as np
-import numpy.ma as ma
-import os
 import rasterio
 from scipy.ndimage import maximum_filter
 import torch
@@ -92,19 +89,6 @@ def _get_scl_cloud_mask(scl):
     return mask
 
 
-def _get_bcy_cloud_mask(green, red):
-    
-    # (green > 0.175 AND NDGR > 0) OR (green > 0.39)
-       
-    ndgr = (green.astype(np.float32) - red.astype(np.float32)) / (green + red)
-        
-    cond1 = (green > 0.175) & (ndgr > 0) 
-    cond2 = green > 0.39
-    mask = cond1 | cond2
-    
-    return mask
-
-
 ### cloud masking coordinator ###
 
 def apply_scl_cloud_mask(stack_tif_path, meta, dst_path):
@@ -113,8 +97,6 @@ def apply_scl_cloud_mask(stack_tif_path, meta, dst_path):
         stack_data = src.read(masked=True)
         bbox = list(src.bounds)
                     
-    green_data = stack_data[1, :, :]
-    red_data = stack_data[2, :, :]
     nir_data = stack_data[3, :, :]
     scl_data = stack_data[-1, :, :]
     
