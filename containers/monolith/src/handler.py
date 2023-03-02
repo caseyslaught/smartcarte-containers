@@ -58,6 +58,7 @@ def handle():
         bbox = region.bounds
         print("bbox:", bbox)
 
+        raise
 
         ### get collections ###         
 
