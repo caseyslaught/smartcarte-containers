@@ -124,16 +124,18 @@ def apply_scl_cloud_mask(stack_tif_path, meta, dst_path):
     return dst_path
 
 
-def apply_nn_cloud_mask(stack_tif_path, meta, dst_path, model_path, band_path=None):
-    
-    with rasterio.open(stack_tif_path) as src:
-        stack_data = src.read(masked=True)
-        bbox = list(src.bounds)
-                        
+def apply_nn_cloud_mask(stack_tif_path, meta, dst_path, model_path, bbox=None, stack_data=None):
+        
+    write_file_mode = stack_data is None or bbox is None # should results be written to dst_path or just return masked data
+    if write_file_mode:
+        with rasterio.open(stack_tif_path) as src:
+            stack_data = src.read(masked=True)
+            bbox = list(src.bounds)
+
     scl_data = stack_data[-1, :, :]
         
     image = stack_data[:-1, :, :]
-    image = image.filled(-1.0) # converst to ndarray and fills masked values with -1.0
+    image = image.filled(-1.0) # convert to ndarray and fills masked values with -1.0
     saved_shape = image.shape
 
     height_pad = 32 - (image.shape[1] % 32)
@@ -146,7 +148,7 @@ def apply_nn_cloud_mask(stack_tif_path, meta, dst_path, model_path, band_path=No
     model = torch.load(model_path)
     prediction = model.predict(image)
     
-    print('\t\tprediction done')
+    # print('\t\tprediction done')
     probabilities = torch.sigmoid(prediction).cpu().numpy()
     probabilities = probabilities[0, 0, :, :]
     binary_prediction = (probabilities >= 0.50).astype(bool)
@@ -162,12 +164,15 @@ def apply_nn_cloud_mask(stack_tif_path, meta, dst_path, model_path, band_path=No
     # this is also taking a long time...but not too long
     full_mask = cloud_mask | bad_mask | cloud_shadow_mask
     full_mask = _buffer_mask(full_mask, radius=20)
+    pct_masked = full_mask.sum() / full_mask.size
     
-    stack_data.mask = full_mask    
+    stack_data.mask = full_mask | stack_data.mask 
     stack_data = stack_data[:-1, :, :]
-    stack_data = stack_data.transpose((1, 2, 0))
     
+    if not write_file_mode:
+        return (stack_data, pct_masked)
+    
+    stack_data = stack_data.transpose((1, 2, 0))
     write_array_to_tif(stack_data, dst_path, bbox, dtype=np.float32, epsg=4326, nodata=NODATA_FLOAT32)
     
-    pct_masked = full_mask.sum() / full_mask.size
     return pct_masked < 0.80

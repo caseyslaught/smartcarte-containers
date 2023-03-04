@@ -95,10 +95,6 @@ def get_processed_composite(collection, bbox, dst_dir, cloud_mask_model_path):
 
     res = 10 / (111.32 * 1000) # * cos((bbox[3]-bbox[1])/2)
 
-    # not needed if using rasterio.merge.merge
-    # blank_float32_path = f'{dst_dir}/blank_float32.tif'
-    # create_blank_tif(bbox, dst_path=blank_float32_path, dtype=gdal.GDT_Float32, nodata=NODATA_FLOAT32, res=res)
-    
     original_scenes = download_collection(collection, bbox, S2_BANDS_TIFF_ORDER, dst_dir, res)
     
     masked_scenes = {}
@@ -110,10 +106,7 @@ def get_processed_composite(collection, bbox, dst_dir, cloud_mask_model_path):
         
         stack_original_tif_path = original_scenes[scene]['stack_original_tif_path']    # 1. original, normalized
         stack_masked_tif_path = f'{scene_dir}/stack_masked.tif'                        # 2. masked
-        # stack_masked_merged_tif_path = f'{scene_dir}/stack_masked_merged.tif'        # 3. merged with blank           
-        
-        # merge_stack_with_blank(stack_masked_tif_path, blank_float32_path, bbox, merged_path=stack_masked_merged_tif_path)
-        
+
         if not apply_nn_cloud_mask(stack_original_tif_path, meta, stack_masked_tif_path, cloud_mask_model_path):
             print(f'\t\tskipping {scene}, too many clouds')
             continue

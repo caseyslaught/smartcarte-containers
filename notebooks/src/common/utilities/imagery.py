@@ -149,7 +149,7 @@ def normalize_3d_array_percentiles(data, p_low=1, p_high=99, is_transposed=False
         p1, p99 = np.nanpercentile(data, [p_low, p_high], axis=[0, 1])
     else:
         p1, p99 = np.nanpercentile(data, [p_low, p_high], axis=[1, 2])
-        
+                
     for i in range(p1.shape[0]):
         if is_transposed:
             band_data = np.clip(data[:, :, i], p1[i], p99[i])
