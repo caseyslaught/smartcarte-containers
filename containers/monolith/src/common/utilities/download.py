@@ -57,6 +57,7 @@ def get_collection(start_date, end_date, bbox, dst_path, max_cloud_cover=20, max
 
     for square in items_count:
         if items_count[square] < min_tile_count:
+            print(items_count)
             raise NotEnoughItemsException(f'only {items_count[square]} items for square {square} with cloud cover {max_cloud_cover}%')
 
     bbox_coverage = get_collection_bbox_coverage(collection, bbox)
@@ -88,10 +89,8 @@ def get_scene_metadata(href):
 def get_processed_composite(collection, bbox, dst_dir, cloud_mask_model_path):
 
     composite_path = f'{dst_dir}/composite.tif'
-    #if os.path.exists(composite_path):
-    #    return composite_path
 
-    res = 10 / (111.32 * 1000)
+    res = 10 / (111.32 * 1000) # about 10m in degrees
 
     original_scenes = download_collection(collection, bbox, S2_BANDS_TIFF_ORDER, dst_dir, res)
     
@@ -103,10 +102,10 @@ def get_processed_composite(collection, bbox, dst_dir, cloud_mask_model_path):
         meta = original_scenes[scene]['meta']
         
         stack_original_tif_path = original_scenes[scene]['stack_original_tif_path']    # 1. original, normalized
-        stack_masked_tif_path = f'{scene_dir}/stack_masked.tif'                        # 2. masked        
-        
+        stack_masked_tif_path = f'{scene_dir}/stack_masked.tif'                        # 2. masked
+
         if not apply_nn_cloud_mask(stack_original_tif_path, meta, stack_masked_tif_path, cloud_mask_model_path):
-            print(f'\t\tskipping {scene}: too many clouds')
+            print(f'\t\tskipping {scene}, too many clouds')
             continue
         
         masked_scenes[scene] = stack_masked_tif_path
@@ -131,7 +130,7 @@ def download_bbox(bbox, cog_url, read_all=False):
             s3_data = s3_src.read(1, masked=True, window=window).astype(np.uint16)
     
         return (s3_data, rasterio.windows.transform(window, s3_src.transform))
-
+    
 
 
 def download_collection(collection, bbox, bands, dst_dir, res):
@@ -167,9 +166,9 @@ def download_collection(collection, bbox, bands, dst_dir, res):
         stack_original_tif_path = f'{scene_dir}/stack_original.tif'
         
         ### TESTING ###
-        #if os.path.exists(stack_original_tif_path):
-        #    scenes[item.id]['stack_original_tif_path'] = stack_original_tif_path
-        #    continue
+        if os.path.exists(stack_original_tif_path):
+            scenes[item.id]['stack_original_tif_path'] = stack_original_tif_path
+            continue
 
         if not os.path.exists(scene_dir):
             os.mkdir(scene_dir)
@@ -184,7 +183,7 @@ def download_collection(collection, bbox, bands, dst_dir, res):
                                     
             write_array_to_tif(s3_data, band_path, overlap_bbox_utm, dtype=np.float32, epsg=item_epsg_int, nodata=NODATA_FLOAT32, transform=s3_transform)
             gdal.Warp(band_path, band_path, dstSRS="EPSG:4326", xRes=res, yRes=res, outputBounds=overlap_bbox_ll)
-            
+
             band_tif_paths.append(band_path)
             
         stack_data = []
@@ -194,10 +193,7 @@ def download_collection(collection, bbox, bands, dst_dir, res):
                 
         stack_data = np.array(stack_data).transpose((1, 2, 0))     
         write_array_to_tif(stack_data, stack_original_tif_path, overlap_bbox_ll, dtype=np.float32, epsg=4326, nodata=NODATA_FLOAT32)        
-
         scenes[item.id]['stack_original_tif_path'] = stack_original_tif_path
 
     return scenes
-
-
 

@@ -67,8 +67,10 @@ def _get_cloud_shadow_mask(cloud_mask, azimuth, zenith):
     ])
 
     potential_shadow = np.sum(potential_shadow, axis=0) > 0
-        
-    return potential_shadow
+    
+    shadow = potential_shadow
+    
+    return shadow
 
 
 ### SCL masking ###
@@ -89,29 +91,64 @@ def _get_scl_cloud_mask(scl):
 
 ### cloud masking coordinator ###
 
-def apply_nn_cloud_mask(stack_tif_path, meta, dst_path, model_path):
+def apply_scl_cloud_mask(stack_tif_path, meta, dst_path):
     
     with rasterio.open(stack_tif_path) as src:
         stack_data = src.read(masked=True)
         bbox = list(src.bounds)
-                        
+                    
+    nir_data = stack_data[3, :, :]
+    scl_data = stack_data[-1, :, :]
+    
+    # calculate cloud mask
+    # bcy_cloud_mask = _get_bcy_cloud_mask(green_data, red_data) 
+    scl_cloud_mask = _get_scl_cloud_mask(scl_data)
+    cloud_mask = scl_cloud_mask # | bcy_cloud_mask
+
+    # calculate dark pixel masks
+    bad_mask = _get_scl_bad_pixel_mask(scl_data)
+    cloud_shadow_mask = _get_cloud_shadow_mask(cloud_mask, meta["AZIMUTH_ANGLE"], meta["ZENITH_ANGLE"], nir_data, scl_data)
+    mask = cloud_mask | bad_mask | cloud_shadow_mask
+    
+    # add a buffer to the mask
+    mask = _buffer_mask(mask)
+    
+    # apply full mask to stack
+    full_mask = stack_data.mask | mask    
+    stack_data.mask = full_mask    
+    stack_data = stack_data[:-1, :, :]
+    stack_data = stack_data.transpose((1, 2, 0))
+
+    write_array_to_tif(stack_data, dst_path, bbox, dtype=np.float32, nodata=NODATA_FLOAT32)
+    
+    return dst_path
+
+
+def apply_nn_cloud_mask(stack_tif_path, meta, dst_path, model_path, bbox=None, stack_data=None):
+        
+    write_file_mode = stack_data is None or bbox is None # should results be written to dst_path or just return masked data
+    if write_file_mode:
+        with rasterio.open(stack_tif_path) as src:
+            stack_data = src.read(masked=True)
+            bbox = list(src.bounds)
+
     scl_data = stack_data[-1, :, :]
         
     image = stack_data[:-1, :, :]
-    image = image.filled(-1.0) # fill masked values with -1.0
+    image = image.filled(-1.0) # convert to ndarray and fills masked values with -1.0
     saved_shape = image.shape
 
     height_pad = 32 - (image.shape[1] % 32)
     width_pad = 32 - (image.shape[2] % 32)
     image = np.pad(image, ((0, 0), (0, height_pad), (0, width_pad)), mode='reflect')
-        
+            
     image = np.expand_dims(image, 0)
     image = torch.tensor(image)
         
     model = torch.load(model_path)
     prediction = model.predict(image)
     
-    print('\t\tprediction done')
+    # print('\t\tprediction done')
     probabilities = torch.sigmoid(prediction).cpu().numpy()
     probabilities = probabilities[0, 0, :, :]
     binary_prediction = (probabilities >= 0.50).astype(bool)
@@ -127,14 +164,15 @@ def apply_nn_cloud_mask(stack_tif_path, meta, dst_path, model_path):
     # this is also taking a long time...but not too long
     full_mask = cloud_mask | bad_mask | cloud_shadow_mask
     full_mask = _buffer_mask(full_mask, radius=20)
+    pct_masked = full_mask.sum() / full_mask.size
     
-    stack_data.mask = full_mask    
+    stack_data.mask = full_mask | stack_data.mask 
     stack_data = stack_data[:-1, :, :]
-    stack_data = stack_data.transpose((1, 2, 0))
     
+    if not write_file_mode:
+        return (stack_data, pct_masked)
+    
+    stack_data = stack_data.transpose((1, 2, 0))
     write_array_to_tif(stack_data, dst_path, bbox, dtype=np.float32, epsg=4326, nodata=NODATA_FLOAT32)
     
-    pct_masked = full_mask.sum() / full_mask.size
-    print('\t', pct_masked)
-    return pct_masked < 0.90
-
+    return pct_masked < 0.80

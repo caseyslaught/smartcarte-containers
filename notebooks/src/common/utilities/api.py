@@ -3,20 +3,37 @@ import requests
 from common.constants import API_BASE_URL
 
 
-def get_forest_change_task_params(task_uid):
+def get_demo_classification_task(task_uid):
 
-    url = f'{API_BASE_URL}/tasks/get_forest_change_task_params'
-    
-    res = requests.get(url, {'task_uid': task_uid})
+    url = f'{API_BASE_URL}/tasks/get_demo_classification_task/{task_uid}'
+    res = requests.get(url)
 
     if res.status_code == 200:
         return res.json()
     else:
-        print(res.content)
-        raise ValueError()
+        raise Exception(res.text)
+    
+
+def update_demo_classification_task(task_uid, **kwargs):
+
+    url = f'{API_BASE_URL}/tasks/update_demo_classification_task/'
+
+    data = {
+        "task_uid": task_uid,
+        "statistics_json": kwargs.get('statistics_json'),
+        "imagery_tif_href": kwargs.get('imagery_tif_href'),
+        "imagery_tiles_href": kwargs.get('imagery_tiles_href'),
+        "landcover_tif_href": kwargs.get('landcover_tif_href'),
+        "landcover_tiles_href": kwargs.get('landcover_tiles_href'),
+    }
+
+    res = requests.post(url, data)
+    
+    if res.status_code != 200:
+        raise Exception(res.text)
 
 
-def update_task_status(task_uid, task_type, status, message=None):
+def update_task_status(task_uid, task_type, status, message=None, long_message=None):
 
     url = f'{API_BASE_URL}/tasks/update_task_status/'
 
@@ -24,28 +41,10 @@ def update_task_status(task_uid, task_type, status, message=None):
         "task_uid": task_uid,
         "task_type": task_type,
         "status": status,
-        "message": message
+        "message": message,
+        "long_message": long_message
     })
 
     if res.status_code != 200:
-        raise ValueError(res.text)
-
-
-def update_forest_change_task(task_uid, **kwargs):
-
-    data = {
-        "task_uid": task_uid,
-        "gain_area": kwargs.get('gain_area'),
-        "loss_area": kwargs.get('loss_area'),
-        "total_area": kwargs.get('total_area'),
-        "before_rgb_tiles_href": kwargs.get('before_rgb_tiles_href'),
-        "after_rgb_tiles_href": kwargs.get('after_rgb_tiles_href'),
-        "change_tiles_href": kwargs.get('change_tiles_href')
-    }
-
-    url = f'{API_BASE_URL}/tasks/update_forest_change_task/'
-    res = requests.post(url, data)
-    
-    if res.status_code != 200:
-        raise ValueError(res.text)
+        raise Exception(res.text)
 
