@@ -175,4 +175,4 @@ def apply_nn_cloud_mask(stack_tif_path, meta, dst_path, model_path, bbox=None, s
     stack_data = stack_data.transpose((1, 2, 0))
     write_array_to_tif(stack_data, dst_path, bbox, dtype=np.float32, epsg=4326, nodata=NODATA_FLOAT32)
     
-    return pct_masked < 0.80
+    return pct_masked < 0.90

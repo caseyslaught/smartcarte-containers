@@ -66,8 +66,8 @@ def handle():
                     bbox, 
                     collection_path, 
                     max_cloud_cover=cloud_cover, 
-                    max_tile_count=4, 
-                    min_tile_count=3
+                    max_tile_count=8, 
+                    min_tile_count=4
                 )
             except (EmptyCollectionException, IncompleteCoverageException, NotEnoughItemsException) as e:
                 print(e)
