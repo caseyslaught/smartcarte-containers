@@ -9,7 +9,7 @@ import shutil
 import warnings
 
 from common.constants import NODATA_BYTE, NODATA_FLOAT32
-
+from common.exceptions import NotEnoughItemsException
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
@@ -107,7 +107,15 @@ def merge_scenes(scenes_dict, merged_path):
     for scene in scenes_dict:
         src = rasterio.open(scenes_dict[scene])
         masked_sources.append(src)
-        
+
+    if len(masked_sources) == 0:
+        raise NotEnoughItemsException("Not masked sources to merge")
+    elif len(masked_sources) == 1:
+        shutil.copy2(masked_sources[0].name, merged_path)
+        return
+    
+    masked_sources = [masked_sources[0]]
+
     sum_data, sum_transform = rasterio.merge.merge(masked_sources, indexes=[1, 2, 3, 4], method="sum", nodata=NODATA_FLOAT32)  
     sum_data = np.ma.array(sum_data, mask=(sum_data==NODATA_FLOAT32))
 

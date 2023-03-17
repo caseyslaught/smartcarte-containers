@@ -83,7 +83,12 @@ def handle():
 
         update_task_status(task_uid, task_type, "running", "Processing imagery")
 
-        composite_path = get_processed_composite(collection, bbox, base_dir, CLOUD_DETECTION_MODEL_PATH)
+        try:
+            composite_path = get_processed_composite(collection, bbox, base_dir, CLOUD_DETECTION_MODEL_PATH)
+        except NotEnoughItemsException as e:
+            print(e)
+            update_task_status(task_uid, task_type, "failed", "Task failed", "There are not enough valid images for the selected date and region. This usually occurs when there is excessive cloud cover. Please try again with a different date or region.")
+            return
 
         rgb_path = f'{base_dir}/rgb_byte.tif'
         create_rgb_byte_tif_from_composite(composite_path, rgb_path, is_cog=True)
