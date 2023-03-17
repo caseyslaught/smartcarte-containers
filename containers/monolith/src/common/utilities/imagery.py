@@ -103,16 +103,17 @@ def create_composite_from_paths(stack_paths, dst_path, nodata=NODATA_FLOAT32):
 
 def merge_scenes(scenes_dict, merged_path):
 
+    if len(scenes_dict) == 0:
+        raise NotEnoughItemsException("No scenes to merge")
+    elif len(scenes_dict) == 1:
+        print('Only one scene to merge, copying to merged path')
+        shutil.copy2(list(scenes_dict.values())[0], merged_path)
+        return
+
     masked_sources = []
     for scene in scenes_dict:
         src = rasterio.open(scenes_dict[scene])
         masked_sources.append(src)
-
-    if len(masked_sources) == 0:
-        raise NotEnoughItemsException("Not masked sources to merge")
-    elif len(masked_sources) == 1:
-        shutil.copy2(masked_sources[0].name, merged_path)
-        return
     
     masked_sources = [masked_sources[0]]
 
