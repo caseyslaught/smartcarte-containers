@@ -66,8 +66,8 @@ def handle():
                     bbox, 
                     collection_path, 
                     max_cloud_cover=cloud_cover, 
-                    max_tile_count=8, 
-                    min_tile_count=4
+                    max_tile_count=3, # 8
+                    min_tile_count=2 # 4
                 )
             except (EmptyCollectionException, IncompleteCoverageException, NotEnoughItemsException) as e:
                 print(e)
@@ -91,10 +91,13 @@ def handle():
             return
 
         rgb_path = f'{base_dir}/rgb_byte.tif'
-        create_rgb_byte_tif_from_composite(composite_path, rgb_path, is_cog=True)
+        create_rgb_byte_tif_from_composite(composite_path, rgb_path, is_cog=True, use_alpha=False)
+
+        rgba_path = f'{base_dir}/rgba_byte.tif'
+        create_rgb_byte_tif_from_composite(composite_path, rgba_path, is_cog=True, use_alpha=True)
         
         tiles_dir = f'{base_dir}/rgb_byte_tiles'
-        create_map_tiles(rgb_path, tiles_dir, max_zoom=14)
+        create_map_tiles(rgba_path, tiles_dir, max_zoom=12) # TESTING 14
 
         rgb_plot = f'{base_dir}/rgb.png'
         plot_tif(rgb_path, rgb_plot, bands=[1, 2, 3], cmap=None)

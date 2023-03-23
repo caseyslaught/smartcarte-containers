@@ -89,9 +89,8 @@ def get_scene_metadata(href):
 def get_processed_composite(collection, bbox, dst_dir, cloud_mask_model_path):
 
     composite_path = f'{dst_dir}/composite.tif'
-    #if os.path.exists(composite_path):
-    #    return composite_path
-
+    if os.path.exists(composite_path):
+        return composite_path
 
     res = 10 / (111.32 * 1000) # * cos((bbox[3]-bbox[1])/2)
 

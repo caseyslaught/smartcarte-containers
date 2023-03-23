@@ -6,6 +6,7 @@ import rasterio
 import rasterio.merge
 from rasterio.windows import Window
 import shutil
+from skimage import exposure
 import warnings
 
 from common.constants import NODATA_BYTE, NODATA_FLOAT32
@@ -146,7 +147,6 @@ def merge_stack_with_blank(stack_path, blank_path, bbox, res, merged_path=None):
     
 def normalize_3d_array_percentiles(data, p_low=1, p_high=99, is_transposed=False):
     # data.shape = (c, h, w)
-    
     if np.ma.is_masked(data):
         data = data.filled(np.nan)
             
@@ -191,55 +191,30 @@ def normalize_tif(tif_path, dst_path=None):
     write_array_to_tif(norm_data, dst_path, bbox, dtype=np.float32, epsg=4326, nodata=NODATA_FLOAT32)
 
 
-### VRT and GeoTIFF creation ###
+### GeoTIFF creation ###
 
-
-def create_vrt(band_paths, dst_path):
-
-    vrt_options = gdal.BuildVRTOptions(separate=True)
-    gdal.BuildVRT(dst_path, band_paths, options=vrt_options)
-
-
-def create_tif_from_vrt(vrt_path, dst_path, isCog=False, nodata=NODATA_FLOAT32):
-
-    _format = "COG" if isCog else "GTiff"
-
-    translate_options = gdal.TranslateOptions(
-        format=_format, 
-        noData=nodata,
-    )
-
-    gdal.Translate(dst_path, vrt_path, options=translate_options)
-
-
-def create_byte_vrt(full_vrt_path, dst_path):
-
-    translate_options = gdal.TranslateOptions(
-        format="VRT", 
-        outputType=gdalconst.GDT_Byte, 
-        scaleParams=[[0, 2000, 0, 255]],
-        noData=NODATA_BYTE,
-    )
-    gdal.Translate(dst_path, full_vrt_path, options=translate_options)
-
-    
-
-def create_rgb_byte_tif_from_composite(composite_path, dst_path, is_cog=False):
+def create_rgb_byte_tif_from_composite(composite_path, dst_path, is_cog=False, use_alpha=False):
     
     with rasterio.open(composite_path) as src:
         bbox = list(src.bounds)
         rgb_stack = src.read((3, 2, 1), masked=True)
 
-    alpha = (rgb_stack[0, :, :] != NODATA_FLOAT32).astype(np.uint8) * 255
+    gamma = 0.6
+    gamma_stack = np.zeros_like(rgb_stack)
+    for i in range(3):
+        channel = rgb_stack[i, :, :]
+        gamma_stack[i, :, :] = exposure.adjust_gamma(channel, gamma)
+                
+    rgb_stack = np.clip(gamma_stack * 254, 0, 254).astype(np.uint8)
 
-    rgb_stack = normalize_3d_array_percentiles(rgb_stack, 0.1, 99.9)
-    rgb_stack = (rgb_stack * 254).astype(np.uint8)      
-
-    rgbA_stack = np.stack((rgb_stack[0, :, :], rgb_stack[1, :, :], rgb_stack[2, :, :], alpha), axis=0)
-    rgbA_stack = rgbA_stack.transpose((1, 2, 0))
+    if use_alpha:
+        alpha_mask = ~(rgb_stack[0, :, :].mask) # 0 = transparent, 255 = opaque
+        alpha = np.where(alpha_mask, 0, 255)
+        # more succinct way to do this?
+        rgb_stack = np.stack((rgb_stack[0, :, :], rgb_stack[1, :, :], rgb_stack[2, :, :], alpha), axis=0)
     
-    write_array_to_tif(rgbA_stack, dst_path, bbox, dtype=np.uint8, is_cog=is_cog, nodata=255)
-
+    rgb_stack = rgb_stack.transpose((1, 2, 0))
+    write_array_to_tif(rgb_stack, dst_path, bbox, dtype=np.uint8, is_cog=is_cog, nodata=255)
    
     
 def write_array_to_tif(data, dst_path, bbox, dtype=np.float32, epsg=4326, nodata=NODATA_FLOAT32, is_cog=False, transform=None):
@@ -300,8 +275,6 @@ def create_map_tiles(file_path, tiles_dir, min_zoom=2, max_zoom=14):
 
     wb_file_path = file_path.replace('.tif', '_wm.tif')
     gdal.Warp(wb_file_path, file_path, dstSRS="EPSG:3857")
-
-    print(wb_file_path)
 
     options = {
         'kml': True,
