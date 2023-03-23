@@ -16,6 +16,10 @@ from common.utilities.visualization import plot_tif
 
 CLOUD_DETECTION_MODEL_PATH = "./common/models/cloud_detection_model_resnet18_dice_20230301.pth"
 
+MAX_TILES = 8
+MIN_TILES = 4
+TILE_ZOOM = 14
+
 
 def handle():
 
@@ -59,15 +63,15 @@ def handle():
         while True:
 
             try:
-                collection_path = f'{base_dir}/before/s2_collection.json'
+                collection_path = f'{base_dir}/s2_collection.json'
                 collection = get_collection(
                     date_start, 
                     date_end, 
                     bbox, 
                     collection_path, 
                     max_cloud_cover=cloud_cover, 
-                    max_tile_count=3, # 8
-                    min_tile_count=2 # 4
+                    max_tile_count=MAX_TILES,
+                    min_tile_count=MIN_TILES,
                 )
             except (EmptyCollectionException, IncompleteCoverageException, NotEnoughItemsException) as e:
                 print(e)
@@ -97,7 +101,7 @@ def handle():
         create_rgb_byte_tif_from_composite(composite_path, rgba_path, is_cog=True, use_alpha=True)
         
         tiles_dir = f'{base_dir}/rgb_byte_tiles'
-        create_map_tiles(rgba_path, tiles_dir, max_zoom=12) # TESTING 14
+        create_map_tiles(rgba_path, tiles_dir, max_zoom=TILE_ZOOM)
 
         rgb_plot = f'{base_dir}/rgb.png'
         plot_tif(rgb_path, rgb_plot, bands=[1, 2, 3], cmap=None)

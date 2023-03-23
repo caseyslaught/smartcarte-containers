@@ -209,8 +209,7 @@ def create_rgb_byte_tif_from_composite(composite_path, dst_path, is_cog=False, u
 
     if use_alpha:
         alpha_mask = ~(rgb_stack[0, :, :].mask) # 0 = transparent, 255 = opaque
-        alpha = np.where(alpha_mask, 0, 255)
-        # more succinct way to do this?
+        alpha = np.where(alpha_mask, 255, 0)
         rgb_stack = np.stack((rgb_stack[0, :, :], rgb_stack[1, :, :], rgb_stack[2, :, :], alpha), axis=0)
     
     rgb_stack = rgb_stack.transpose((1, 2, 0))
