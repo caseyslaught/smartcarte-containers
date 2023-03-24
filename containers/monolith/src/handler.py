@@ -3,6 +3,7 @@ from datetime import timedelta as td
 import json
 import os
 import random
+import sentry_sdk
 from shapely.geometry import shape
 
 from common.exceptions import EmptyCollectionException, IncompleteCoverageException, NotEnoughItemsException
@@ -19,6 +20,13 @@ CLOUD_DETECTION_MODEL_PATH = "./common/models/cloud_detection_model_resnet18_dic
 MAX_TILES = 8
 MIN_TILES = 5
 TILE_ZOOM = 14
+
+SENTRY_PROJECT_ID = os.environ['SENTRY_PROJECT_ID']
+
+sentry_sdk.init(
+    dsn=f"https://c2321cc79562459cb4cfd3d33ac91d3d@o4504860083224576.ingest.sentry.io/{SENTRY_PROJECT_ID}",
+    traces_sample_rate=0.1
+)
 
 
 def handle():

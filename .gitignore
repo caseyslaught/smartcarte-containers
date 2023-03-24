@@ -18,6 +18,8 @@ lightning_logs/
 testing
 dep
 
+test.sh
+
 *model.pth
 
 *.png
