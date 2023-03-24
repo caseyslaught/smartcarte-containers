@@ -1,3 +1,3 @@
-export TASK_UID="8a1c6e98-99a1-4ac4-9d72-7407c2a2d287"
+export TASK_UID="a3a5abc7-6a05-4378-9078-d8ae37d821cb"
 export TASK_TYPE="demo_classification"
 python handler.py

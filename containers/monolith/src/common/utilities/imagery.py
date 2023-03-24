@@ -116,8 +116,6 @@ def merge_scenes(scenes_dict, merged_path):
         src = rasterio.open(scenes_dict[scene])
         masked_sources.append(src)
     
-    masked_sources = [masked_sources[0]]
-
     sum_data, sum_transform = rasterio.merge.merge(masked_sources, indexes=[1, 2, 3, 4], method="sum", nodata=NODATA_FLOAT32)  
     sum_data = np.ma.array(sum_data, mask=(sum_data==NODATA_FLOAT32))
 
