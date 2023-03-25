@@ -12,7 +12,7 @@ import xml.etree.ElementTree as ET
 from common.exceptions import EmptyCollectionException, IncompleteCoverageException, NotEnoughItemsException
 from common.constants import NODATA_FLOAT32, S2_BANDS_TIFF_ORDER
 from common.utilities.imagery import merge_scenes, normalize_original_s2_array, write_array_to_tif
-from common.utilities.masking import apply_nn_cloud_mask
+from common.utilities.masking import apply_cloud_mask
 from common.utilities.projections import get_collection_bbox_coverage, reproject_shape
 
 
@@ -104,7 +104,7 @@ def get_processed_composite(collection, bbox, dst_dir, cloud_mask_model_path):
         stack_original_tif_path = original_scenes[scene]['stack_original_tif_path']    # 1. original, normalized
         stack_masked_tif_path = f'{scene_dir}/stack_masked.tif'                        # 2. masked
 
-        if not apply_nn_cloud_mask(stack_original_tif_path, meta, stack_masked_tif_path, cloud_mask_model_path):
+        if not apply_cloud_mask(stack_original_tif_path, meta, stack_masked_tif_path, cloud_mask_model_path):
             print(f'\t\tskipping {scene}, too many clouds')
             continue
         

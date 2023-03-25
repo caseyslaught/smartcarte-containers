@@ -11,6 +11,7 @@ from common.constants import DAYS_BUFFER, MAX_CLOUD_COVER
 from common.utilities.api import get_demo_classification_task, update_demo_classification_task, update_task_status
 from common.utilities.download import get_collection, get_processed_composite
 from common.utilities.imagery import create_map_tiles, create_rgb_byte_tif_from_composite
+from common.utilities.projections import reproject_shape
 from common.utilities.upload import get_file_cdn_url, get_tiles_cdn_url, save_task_file_to_s3, save_task_tiles_to_s3
 from common.utilities.visualization import plot_tif
 
@@ -21,31 +22,29 @@ MAX_TILES = 8
 MIN_TILES = 5
 TILE_ZOOM = 14
 
-SENTRY_PROJECT_ID = os.environ['SENTRY_PROJECT_ID']
-
 sentry_sdk.init(
-    dsn=f"https://c2321cc79562459cb4cfd3d33ac91d3d@o4504860083224576.ingest.sentry.io/{SENTRY_PROJECT_ID}",
-    traces_sample_rate=0.1
+    dsn=f"https://c2321cc79562459cb4cfd3d33ac91d3d@o4504860083224576.ingest.sentry.io/{os.environ['SENTRY_MONOLITH_PROJECT_ID']}",
+    traces_sample_rate=0.2
 )
+
+TASK_UID = os.environ['TASK_UID'].strip()
+TASK_TYPE = os.environ['TASK_TYPE'].strip()
 
 
 def handle():
 
-    task_uid = os.environ['TASK_UID'].strip()
-    task_type = os.environ['TASK_TYPE'].strip()
+    base_dir = f"/tmp/{TASK_UID}"
 
-    base_dir = f"/tmp/{task_uid}"
-
-    print("task_uid:", task_uid)
-    print("task_type:", task_type)
+    print("TASK_UID:", TASK_UID)
+    print("TASK_TYPE:", TASK_TYPE)
     
-    update_task_status(task_uid, task_type, "running", "Fetching imagery")
+    update_task_status(TASK_UID, TASK_TYPE, "running", "Fetching imagery")
 
-    if task_type == "demo_classification":
+    if TASK_TYPE == "demo_classification":
 
         ### prepare parameters ###
 
-        params = get_demo_classification_task(task_uid)
+        params = get_demo_classification_task(TASK_UID)
 
         date_end = dt.strptime(params['date'], '%Y-%m-%d')
         date_start = date_end - td(days=DAYS_BUFFER)
@@ -58,18 +57,25 @@ def handle():
         elif geojson['type'] == 'Polygon':
             region = shape(geojson)
         else:
-            raise ValueError("invalid geojson type") # TODO: figure out proper logging!
+            raise Exception("invalid geojson type")
 
         bbox = region.bounds
         print("bbox:", bbox)
 
 
+        ### intro logging ###
+
+        region_ea = reproject_shape(region, "EPSG:4326", "EPSG:3857")
+        region_area_km2 = round(region_ea.area / 1000000, 2)
+        intro_message = f'task_uid: {TASK_UID}, area: {region_area_km2} km2, dates: {date_start} to {date_end}'
+        sentry_sdk.capture_message(intro_message, "info")
+        
+        
         ### get collections ###         
 
         # incrementally increase cloud_cover until we get a complete collection
         cloud_cover = 10
         while True:
-
             try:
                 collection_path = f'{base_dir}/s2_collection.json'
                 collection = get_collection(
@@ -84,7 +90,7 @@ def handle():
             except (EmptyCollectionException, IncompleteCoverageException, NotEnoughItemsException) as e:
                 print(e)
                 if cloud_cover >= MAX_CLOUD_COVER:
-                    update_task_status(task_uid, task_type, "failed", "Task failed", "There are not enough valid images for the selected date and region. This usually occurs when there is excessive cloud cover. Please try again with a different date or region.")
+                    update_task_status(TASK_UID, TASK_TYPE, "failed", "Task failed", "There are not enough valid images for the selected date and region. This usually occurs when there is excessive cloud cover. Please try again with a different date or region.")
                     return
                 else:
                     cloud_cover += 20
@@ -93,13 +99,13 @@ def handle():
 
         ### prepare imagery ###
 
-        update_task_status(task_uid, task_type, "running", "Processing imagery")
+        update_task_status(TASK_UID, TASK_TYPE, "running", "Processing imagery")
 
         try:
             composite_path = get_processed_composite(collection, bbox, base_dir, CLOUD_DETECTION_MODEL_PATH)
         except NotEnoughItemsException as e:
             print(e)
-            update_task_status(task_uid, task_type, "failed", "Task failed", "There are not enough valid images for the selected date and region. This usually occurs when there is excessive cloud cover. Please try again with a different date or region.")
+            update_task_status(TASK_UID, TASK_TYPE, "failed", "Task failed", "There are not enough valid images for the selected date and region. This usually occurs when there is excessive cloud cover. Please try again with a different date or region.")
             return
 
         rgb_path = f'{base_dir}/rgb_byte.tif'
@@ -117,12 +123,12 @@ def handle():
 
         ### upload assets to S3 ###
 
-        update_task_status(task_uid, task_type, "running", "Uploading assets")
+        update_task_status(TASK_UID, TASK_TYPE, "running", "Uploading assets")
 
-        save_task_file_to_s3(rgb_plot, task_uid) # for debugging purposes
-        rgb_object_key = save_task_file_to_s3(rgb_path, task_uid)
-        composite_object_key = save_task_file_to_s3(composite_path, task_uid)
-        tiles_s3_dir = save_task_tiles_to_s3(tiles_dir, task_uid)
+        save_task_file_to_s3(rgb_plot, TASK_UID) # for debugging purposes
+        rgb_object_key = save_task_file_to_s3(rgb_path, TASK_UID)
+        composite_object_key = save_task_file_to_s3(composite_path, TASK_UID)
+        tiles_s3_dir = save_task_tiles_to_s3(tiles_dir, TASK_UID)
 
 
         ### model predictions ###
@@ -150,7 +156,7 @@ def handle():
         print(rgb_tif_href)
 
         update_demo_classification_task(
-            task_uid=task_uid,
+            task_uid=TASK_UID,
             statistics_json=json.dumps(statistics),
             imagery_tif_href=imagery_tif_href,
             imagery_tiles_href=imagery_tiles_href,
@@ -164,9 +170,16 @@ def handle():
 
     ### update status ###
 
-    update_task_status(task_uid, task_type, "complete", "Task complete")
+    update_task_status(TASK_UID, TASK_TYPE, "complete", "Task complete")
     print("complete")
 
 
 if __name__ == "__main__":
-    handle()
+    try:
+        handle()
+    except Exception as e:
+        print(e)
+        update_task_status(TASK_UID, TASK_TYPE, "failed", "Task failed", "An unexpected error occurred. Please try again later.")
+        sentry_sdk.capture_exception(e)
+
+
