@@ -131,7 +131,7 @@ def apply_cloud_mask(stack_tif_path, meta, dst_path, model_path):
         bbox = list(src.bounds)
 
     if stack_data.size > 12000000:
-        stack_data = __apply_nn_cloud_mask_chunks(stack_data, meta, dst_path, model_path, bbox)
+        stack_data = __apply_nn_cloud_mask_chunks(stack_data, meta, model_path)
     else:
         stack_data = __apply_nn_cloud_mask(stack_data, meta, model_path)
 
@@ -145,8 +145,7 @@ def apply_cloud_mask(stack_tif_path, meta, dst_path, model_path):
     return pct_masked < 0.90
 
 
-def __apply_nn_cloud_mask_chunks(stack_data, meta, dst_path, model_path, bbox):
-    # this will call __apply_nn_cloud_mask on chunks of the stack
+def __apply_nn_cloud_mask_chunks(stack_data, meta, model_path):
 
     dim_index = 1 if stack_data.shape[1] > stack_data.shape[2] else 2
 
@@ -158,18 +157,12 @@ def __apply_nn_cloud_mask_chunks(stack_data, meta, dst_path, model_path, bbox):
 
     stack_data_1, stack_data_2 = np.split(stack_data, [split_index], axis=dim_index)
 
-    print(stack_data.shape)
-    print(stack_data_1.shape)
-    print(stack_data_2.shape)
-
     masked_data_1 = __apply_nn_cloud_mask(stack_data_1, meta, model_path)
     masked_data_2 = __apply_nn_cloud_mask(stack_data_2, meta, model_path)
 
-    masked_data = np.concatenate((masked_data_1, masked_data_2), axis=dim_index)
-    print(masked_data.shape)
+    masked_data = np.ma.concatenate((masked_data_1, masked_data_2), axis=dim_index)
 
     return masked_data
-
 
 
 def __apply_nn_cloud_mask(stack_data, meta, model_path):
