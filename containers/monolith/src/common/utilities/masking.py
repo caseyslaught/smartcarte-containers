@@ -130,9 +130,7 @@ def apply_cloud_mask(stack_tif_path, meta, dst_path, model_path):
         stack_data = src.read(masked=True)
         bbox = list(src.bounds)
 
-    print(f'stack_tif_path: {stack_data.size}, {stack_data.shape}')
-
-    if stack_data.size > 10000000:
+    if stack_data.size > 12000000:
         stack_data = __apply_nn_cloud_mask_chunks(stack_data, meta, dst_path, model_path, bbox)
     else:
         stack_data = __apply_nn_cloud_mask(stack_data, meta, model_path)

@@ -5,6 +5,7 @@ import os
 import random
 import sentry_sdk
 from shapely.geometry import shape
+import time
 
 from common.exceptions import EmptyCollectionException, IncompleteCoverageException, NotEnoughItemsException
 from common.constants import DAYS_BUFFER, MAX_CLOUD_COVER
@@ -24,7 +25,10 @@ TILE_ZOOM = 14
 
 sentry_sdk.init(
     dsn=f"https://c2321cc79562459cb4cfd3d33ac91d3d@o4504860083224576.ingest.sentry.io/{os.environ['SENTRY_MONOLITH_PROJECT_ID']}",
-    traces_sample_rate=0.2
+    traces_sample_rate=1.0,
+    _experiments={
+        "profiles_sample_rate": 1.0,
+    }
 )
 
 TASK_UID = os.environ['TASK_UID'].strip()
@@ -67,8 +71,9 @@ def handle():
 
         region_ea = reproject_shape(region, "EPSG:4326", "EPSG:3857")
         region_area_km2 = round(region_ea.area / 1000000, 2)
-        intro_message = f'task_uid: {TASK_UID}, area: {region_area_km2} km2, dates: {date_start} to {date_end}'
+        intro_message = f'intro - task_uid: {TASK_UID}\ndates: {date_start} to {date_end}\narea: {region_area_km2} km2'
         sentry_sdk.capture_message(intro_message, "info")
+        print(intro_message)
         
         
         ### get collections ###         
@@ -175,11 +180,19 @@ def handle():
 
 
 if __name__ == "__main__":
+
+    sentry_sdk.set_tag("task_uid", TASK_UID)
+
     try:
+        start_time = time.time()
         handle()
     except Exception as e:
         print(e)
         update_task_status(TASK_UID, TASK_TYPE, "failed", "Task failed", "An unexpected error occurred. Please try again later.")
         sentry_sdk.capture_exception(e)
-
-
+    else:
+        end_time = time.time()
+        elapsed_time = end_time - start_time
+        complete_message = f'complete - task_uid: {TASK_UID}\nelapsed time: {elapsed_time:.2f} seconds'
+        sentry_sdk.capture_message(complete_message, "info")
+        print(complete_message)
