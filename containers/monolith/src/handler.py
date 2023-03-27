@@ -17,7 +17,7 @@ from common.utilities.upload import get_file_cdn_url, get_tiles_cdn_url, save_ta
 from common.utilities.visualization import plot_tif
 
 
-CLOUD_DETECTION_MODEL_PATH = "./common/models/cloud_detection_model_resnet18_dice_20230324.pth"
+CLOUD_DETECTION_MODEL_PATH = "./common/models/cloud_detection_model_resnet18_dice_20230327.pth"
 
 MAX_TILES = 8
 MIN_TILES = 5
