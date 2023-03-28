@@ -11,6 +11,7 @@ from common.exceptions import EmptyCollectionException, IncompleteCoverageExcept
 from common.constants import DAYS_BUFFER, MAX_CLOUD_COVER
 from common.utilities.api import get_demo_classification_task, update_demo_classification_task, update_task_status
 from common.utilities.download import get_collection, get_processed_composite
+from common.utilities.email import send_success_email
 from common.utilities.imagery import create_map_tiles, create_rgb_byte_tif_from_composite
 from common.utilities.projections import reproject_shape
 from common.utilities.upload import get_file_cdn_url, get_tiles_cdn_url, save_task_file_to_s3, save_task_tiles_to_s3
@@ -50,6 +51,8 @@ def handle():
 
         params = get_demo_classification_task(TASK_UID)
 
+        recipient_email = params['email']
+
         date_end = dt.strptime(params['date'], '%Y-%m-%d')
         date_start = date_end - td(days=DAYS_BUFFER)
 
@@ -74,7 +77,7 @@ def handle():
         intro_message = f'intro - task_uid: {TASK_UID}\ndates: {date_start} to {date_end}\narea: {region_area_km2} km2'
         sentry_sdk.capture_message(intro_message, "info")
         print(intro_message)
-        
+
         
         ### get collections ###         
 
@@ -169,9 +172,14 @@ def handle():
             # landcover_tiles_href=get_tiles_cdn_url(landcover_tiles_s3_dir),
             rgb_tif_href=rgb_tif_href,
         )
+        
+
+        ### send email ###
+
+        send_success_email(TASK_UID, date_start, date_end, region_area_km2, recipient_email)
 
     else:
-        raise ValueError()
+        raise Exception("invalid task type")
 
     ### update status ###
 
