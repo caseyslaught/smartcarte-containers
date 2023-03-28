@@ -20,8 +20,8 @@ from common.utilities.visualization import plot_tif
 
 CLOUD_DETECTION_MODEL_PATH = "./common/models/cloud_detection_model_resnet18_dice_20230327.pth"
 
-MAX_TILES = 8
-MIN_TILES = 5
+MAX_TILES = 12
+MIN_TILES = 6
 TILE_ZOOM = 14
 
 sentry_sdk.init(
@@ -79,7 +79,7 @@ def handle():
         print(intro_message)
 
         
-        ### get collections ###         
+        ### get collections ### 
 
         # incrementally increase cloud_cover until we get a complete collection
         cloud_cover = 10
@@ -87,11 +87,11 @@ def handle():
             try:
                 collection_path = f'{base_dir}/s2_collection.json'
                 collection = get_collection(
-                    date_start, 
-                    date_end, 
-                    bbox, 
-                    collection_path, 
-                    max_cloud_cover=cloud_cover, 
+                    date_start,
+                    date_end,
+                    bbox,
+                    collection_path,
+                    max_cloud_cover=cloud_cover,
                     max_tile_count=MAX_TILES,
                     min_tile_count=MIN_TILES,
                 )
