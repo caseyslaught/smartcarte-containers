@@ -13,12 +13,14 @@ from common.utilities.api import get_demo_classification_task, update_demo_class
 from common.utilities.download import get_collection, get_processed_composite
 from common.utilities.email import send_success_email
 from common.utilities.imagery import create_map_tiles, create_rgb_byte_tif_from_composite
+from common.utilities.prediction import apply_landcover_classification
 from common.utilities.projections import reproject_shape
 from common.utilities.upload import get_file_cdn_url, get_tiles_cdn_url, save_task_file_to_s3, save_task_tiles_to_s3
 from common.utilities.visualization import plot_tif
 
 
 CLOUD_DETECTION_MODEL_PATH = "./common/models/cloud_detection_model_resnet18_dice_20230327.pth"
+LANDCOVER_CLASSIFICATION_MODEL_PATH = "./common/models/landcover_classification_model_resnet18_dice_20230328.pth"
 
 MAX_TILES = 12
 MIN_TILES = 6
@@ -140,6 +142,10 @@ def handle():
 
 
         ### model predictions ###
+        
+        landcover_path = f'{base_dir}/landcover_classification.tif'
+        apply_landcover_classification(composite_path, landcover_path)
+        
 
         classes = ["agriculture", "bare_ground", "built", "burned", "semi_natural_vegetation", "trees", "water"]
         statistics = {
