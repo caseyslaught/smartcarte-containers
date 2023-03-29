@@ -117,6 +117,8 @@ def handle():
             print(e)
             update_task_status(TASK_UID, TASK_TYPE, "failed", "Task failed", "There are not enough valid images for the selected date and region. This usually occurs when there is excessive cloud cover. Please try again with a different date or region.")
             return
+        
+        print('composite_path', composite_path)
 
         rgb_path = f'{base_dir}/rgb_byte.tif'
         create_rgb_byte_tif_from_composite(composite_path, rgb_path, is_cog=True, use_alpha=False)

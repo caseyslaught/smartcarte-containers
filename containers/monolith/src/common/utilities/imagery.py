@@ -108,7 +108,8 @@ def merge_scenes(scenes_dict, merged_path):
         raise NotEnoughItemsException("No scenes to merge")
     elif len(scenes_dict) == 1:
         print('Only one scene to merge, copying to merged path')
-        shutil.copy2(list(scenes_dict.values())[0], merged_path)
+        tif_path = list(scenes_dict.values())[0]
+        shutil.copy2(tif_path, merged_path)
         return
 
     masked_sources = []
@@ -216,17 +217,18 @@ def create_rgb_byte_tif_from_composite(composite_path, dst_path, is_cog=False, u
     with rasterio.open(composite_path) as src:
         bbox = list(src.bounds)
         rgb_stack = src.read((3, 2, 1), masked=True)
+        rgb_mask = rgb_stack.mask[0, :, :]
 
     gamma = 0.6
     gamma_stack = np.zeros_like(rgb_stack)
     for i in range(3):
         channel = rgb_stack[i, :, :]
         gamma_stack[i, :, :] = exposure.adjust_gamma(channel, gamma)
-                
+ 
     rgb_stack = np.clip(gamma_stack * 254, 0, 254).astype(np.uint8)
 
     if use_alpha:
-        alpha_mask = ~(rgb_stack[0, :, :].mask) # 0 = transparent, 255 = opaque
+        alpha_mask = ~rgb_mask # 0 = transparent, 255 = opaque
         alpha = np.where(alpha_mask, 255, 0)
         rgb_stack = np.stack((rgb_stack[0, :, :], rgb_stack[1, :, :], rgb_stack[2, :, :], alpha), axis=0)
     
