@@ -9,7 +9,7 @@ import shutil
 from skimage import exposure
 import warnings
 
-from common.constants import NODATA_BYTE, NODATA_FLOAT32
+from common.constants import LANDCOVER_COLORS, NODATA_FLOAT32
 from common.exceptions import NotEnoughItemsException
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -190,6 +190,26 @@ def normalize_tif(tif_path, dst_path=None):
 
 
 ### GeoTIFF creation ###
+
+def create_rgb_byte_tif_from_landcover(landcover_tif, dst_path, is_cog=False, use_alpha=False):
+    
+    with rasterio.open(landcover_tif) as src:
+        data = src.read(1, masked=True)
+        bbox = list(src.bounds)
+
+    rgb_stack = np.zeros((data.shape[0], data.shape[1], 3), dtype=np.uint8)
+    for idx, info in LANDCOVER_COLORS.items():
+        rgb = info[0]
+        mask = (data == idx)
+        rgb_stack[mask] = rgb
+
+    if use_alpha:
+        alpha_mask = np.all(rgb_stack!=0, axis=2)
+        alpha = np.where(alpha_mask, 255, 0)
+        rgb_stack = np.stack((rgb_stack[:, :, 0], rgb_stack[:, :, 1], rgb_stack[:, :, 2], alpha), axis=2)
+    
+    write_array_to_tif(rgb_stack, dst_path, bbox, dtype=np.uint8, is_cog=is_cog, nodata=255)
+   
 
 def create_rgb_byte_tif_from_composite(composite_path, dst_path, is_cog=False, use_alpha=False):
     
