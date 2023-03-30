@@ -16,7 +16,41 @@ from common.utilities.masking import apply_nn_cloud_mask
 from common.utilities.projections import get_collection_bbox_coverage, reproject_shape
 
 
+def get_cloud_freeish_collection(start_date, end_date, bbox, dst_path):
+    
+    stac_date_format = '%Y-%m-%dT%H:%M:%SZ'
+    stac_date_string = start_date.strftime(stac_date_format) + '/' + end_date.strftime(stac_date_format)
 
+    # Open a catalog
+    client = Client.open("https://earth-search.aws.element84.com/v0")
+
+    # Get results for a collection in the catalog
+    search = client.search(
+        bbox=bbox,
+        collections=['sentinel-s2-l2a-cogs'], 
+        datetime=stac_date_string,
+        #sortby='-properties.datetime',
+        sortby='properties.eo:cloud_cover',
+        query={
+            "eo:cloud_cover":{
+                "lt": str(100)
+            },
+        },
+    )
+    
+    bbox_poly_ll = box(*bbox)
+    items, items_count = [], {}
+    for item in list(search.items()):     
+        if is_scene_cloud_freeish(item, bbox_poly_ll):
+            square = item.properties['sentinel:grid_square']
+            count = items_count.get(square, 0)
+            items_count[square] = count + 1
+            items.append(item)
+    
+    collection = ItemCollection(items=items)
+    collection.save_object(dst_path)
+
+    
 def get_collection(start_date, end_date, bbox, dst_path, max_cloud_cover=20, max_tile_count=6, min_tile_count=3):
         
     assert end_date > start_date
@@ -132,6 +166,27 @@ def download_bbox(bbox, cog_url, read_all=False):
             s3_data = s3_src.read(1, masked=True, window=window).astype(np.uint16)
     
         return (s3_data, rasterio.windows.transform(window, s3_src.transform))
+    
+    
+def is_scene_cloud_freeish(item, bbox_poly_ll):
+    
+    item_epsg_int = int(item.properties["proj:epsg"])
+    item_epsg_str = f'EPSG:{item_epsg_int}'       
+
+    scene_poly_ll = shape(item.geometry)
+    overlap_poly_ll = bbox_poly_ll.intersection(scene_poly_ll)
+
+    overlap_poly_utm = reproject_shape(overlap_poly_ll, init_proj="EPSG:4326", target_proj=item_epsg_str)
+    overlap_bbox_utm = np.round(overlap_poly_utm.bounds  , -1)        
+    overlap_poly_utm = box(*overlap_bbox_utm)
+    
+    scl_href = item.assets['SCL'].href
+    scl_data, scl_transform = download_bbox(overlap_bbox_utm, scl_href)
+    
+    cloud_mask = np.isin(scl_data, [3, 8, 9, 10, 11]) 
+    cloud_ratio = np.mean(cloud_mask)
+    
+    return cloud_ratio < 0.60
     
     
 def download_collection(collection, bbox, bands, dst_dir, res):
