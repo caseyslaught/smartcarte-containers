@@ -6,7 +6,7 @@ from pystac_client import Client
 import rasterio
 import rasterio.merge
 import requests
-from shapely.geometry import box, shape, Point
+from shapely.geometry import box, shape
 import xml.etree.ElementTree as ET
 
 from common.exceptions import EmptyCollectionException, IncompleteCoverageException, NotEnoughItemsException
@@ -15,6 +15,79 @@ from common.utilities.imagery import merge_scenes, normalize_original_s2_array, 
 from common.utilities.masking import apply_cloud_mask
 from common.utilities.projections import get_collection_bbox_coverage, reproject_shape
 
+
+def get_cloud_freeish_collection(start_date, end_date, bbox, dst_path):
+    
+    stac_date_format = '%Y-%m-%dT%H:%M:%SZ'
+    stac_date_string = start_date.strftime(stac_date_format) + '/' + end_date.strftime(stac_date_format)
+
+    # Open a catalog
+    client = Client.open("https://earth-search.aws.element84.com/v0")
+
+    # Get results for a collection in the catalog
+    search = client.search(
+        bbox=bbox,
+        collections=['sentinel-s2-l2a-cogs'], 
+        datetime=stac_date_string,
+        #sortby='-properties.datetime',
+        sortby='properties.eo:cloud_cover',
+        query={
+            "eo:cloud_cover":{
+                "lt": str(98)
+            },
+        },
+    )
+
+    if len(list(search.items())) == 0:
+        raise EmptyCollectionException(f'no items in {bbox}')
+
+    # group items by grid square
+    groups = {}
+    bbox_poly_ll = box(*bbox)
+    for item in list(search.items()):
+        square = item.properties['sentinel:grid_square']
+        if square not in groups:
+            groups[square] = []
+
+        cloud_ratio = get_scene_cloud_ratio(item, bbox_poly_ll)
+        if cloud_ratio < 0.80:
+            groups[square].append((item, cloud_ratio))
+
+    # get top items per grid square
+    items = []
+    max_items = 10
+    for square in groups:
+        square_items = groups[square]
+        if len(square_items) == 0:
+            raise NotEnoughItemsException(f'no cloud free-ish items for {square}')
+        square_items.sort(key=lambda x: x[1]) # sort by cloud_ratio
+        print(square, len(square_items))
+        items.extend([x[0] for x in square_items[:max_items]])
+
+    collection = ItemCollection(items=items)
+    collection.save_object(dst_path)
+    return collection
+
+
+def get_scene_cloud_ratio(item, bbox_poly_ll):
+    
+    item_epsg_int = int(item.properties["proj:epsg"])
+    item_epsg_str = f'EPSG:{item_epsg_int}'       
+
+    scene_poly_ll = shape(item.geometry)
+    overlap_poly_ll = bbox_poly_ll.intersection(scene_poly_ll)
+
+    overlap_poly_utm = reproject_shape(overlap_poly_ll, init_proj="EPSG:4326", target_proj=item_epsg_str)
+    overlap_bbox_utm = np.round(overlap_poly_utm.bounds  , -1)        
+    overlap_poly_utm = box(*overlap_bbox_utm)
+    
+    scl_href = item.assets['SCL'].href
+    scl_data, scl_transform = download_bbox(overlap_bbox_utm, scl_href)
+    
+    cloud_mask = np.isin(scl_data, [3, 8, 9, 10, 11]) 
+    cloud_ratio = np.mean(cloud_mask)
+    
+    return cloud_ratio
 
 
 def get_collection(start_date, end_date, bbox, dst_path, max_cloud_cover=20, max_tile_count=6, min_tile_count=3):

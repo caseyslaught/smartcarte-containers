@@ -7,9 +7,9 @@ from shapely.geometry import shape
 import time
 
 from common.exceptions import EmptyCollectionException, IncompleteCoverageException, NotEnoughItemsException
-from common.constants import DAYS_BUFFER, MAX_CLOUD_COVER
+from common.constants import DAYS_BUFFER
 from common.utilities.api import get_demo_classification_task, update_demo_classification_task, update_task_status
-from common.utilities.download import get_collection, get_processed_composite
+from common.utilities.download import get_cloud_freeish_collection, get_processed_composite
 from common.utilities.email import send_success_email
 from common.utilities.imagery import create_map_tiles, create_rgb_byte_tif_from_composite, create_rgb_byte_tif_from_landcover
 from common.utilities.prediction import apply_landcover_classification, calculate_landcover_statistics
@@ -80,8 +80,16 @@ def handle():
         print(intro_message)
 
         
-        ### get collections ### 
+        ### get collections ###
 
+        collection_path = f'{base_dir}/s2_collection.json'
+        try:
+            collection = get_cloud_freeish_collection(date_start, date_end, bbox, collection_path)
+        except (EmptyCollectionException, IncompleteCoverageException, NotEnoughItemsException) as e:
+            update_task_status(TASK_UID, TASK_TYPE, "failed", "Task failed", "There are not enough valid images for the selected date and region. This usually occurs when there is excessive cloud cover. Please try again with a different date or region.")
+            return
+        
+        """        
         # incrementally increase cloud_cover until we get a complete collection
         cloud_cover = 10
         while True:
@@ -105,6 +113,7 @@ def handle():
                     cloud_cover += 20
             else:
                 break
+        """
 
 
         ### prepare imagery ###
@@ -135,6 +144,8 @@ def handle():
 
         ### model predictions ###
         
+        """
+        
         landcover_path = f'{base_dir}/landcover.tif'
         apply_landcover_classification(composite_path, landcover_path, LANDCOVER_CLASSIFICATION_MODEL_PATH)
 
@@ -151,6 +162,7 @@ def handle():
 
         landcover_rgb_plot = f'{base_dir}/landcover.png'
         plot_tif(landcover_rgb_path, landcover_rgb_plot, bands=[1, 2, 3], cmap=None)
+        """
         
 
         ### upload assets to S3 ###
@@ -164,9 +176,9 @@ def handle():
         tiles_s3_dir = save_task_tiles_to_s3(tiles_dir, TASK_UID)
 
         # landcover
-        save_task_file_to_s3(landcover_rgb_plot, TASK_UID)
-        landcover_rgb_object_key = save_task_file_to_s3(landcover_rgb_path, TASK_UID)
-        landcover_tiles_s3_dir = save_task_tiles_to_s3(landcover_tiles_dir, TASK_UID)
+        # save_task_file_to_s3(landcover_rgb_plot, TASK_UID)
+        # landcover_rgb_object_key = save_task_file_to_s3(landcover_rgb_path, TASK_UID)
+        # landcover_tiles_s3_dir = save_task_tiles_to_s3(landcover_tiles_dir, TASK_UID)
 
 
         ### update task in database ###
@@ -175,23 +187,23 @@ def handle():
         imagery_tif_href = get_file_cdn_url(composite_object_key)
         imagery_tiles_href = get_tiles_cdn_url(tiles_s3_dir)
 
-        landcover_tiles_href = get_tiles_cdn_url(landcover_tiles_s3_dir)
-        landcover_rgb_tif_href = get_file_cdn_url(landcover_rgb_object_key)
+        # landcover_tiles_href = get_tiles_cdn_url(landcover_tiles_s3_dir)
+        # landcover_rgb_tif_href = get_file_cdn_url(landcover_rgb_object_key)
         
         print(rgb_tif_href)
         print(imagery_tif_href)
         print(imagery_tiles_href)
-        print(landcover_tiles_href)
-        print(landcover_rgb_tif_href)
+        # print(landcover_tiles_href)
+        # print(landcover_rgb_tif_href)
 
 
         update_demo_classification_task(
             task_uid=TASK_UID,
-            statistics_json=json.dumps(statistics),
+            statistics_json=json.dumps({}),
             imagery_tif_href=imagery_tif_href,
             imagery_tiles_href=imagery_tiles_href,
-            landcover_tif_href=landcover_rgb_tif_href,
-            landcover_tiles_href=landcover_tiles_href,
+            # landcover_tif_href=landcover_rgb_tif_href,
+            # landcover_tiles_href=landcover_tiles_href,
             rgb_tif_href=rgb_tif_href,
         )
 
