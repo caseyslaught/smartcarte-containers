@@ -8,7 +8,6 @@ from common.utilities.imagery import write_array_to_tif
 
 
     
-
 def apply_landcover_classification(tif_path, dst_path, landcover_model_path):
 
     with rasterio.open(tif_path) as src:
@@ -36,7 +35,6 @@ def apply_landcover_classification(tif_path, dst_path, landcover_model_path):
 
     prediction = np.ma.array(prediction, mask=saved_mask[0, :, :])
     prediction.mask |= (prediction == 0)
-    prediction.mask |= (prediction == 1)
     
     write_array_to_tif(prediction, dst_path, bbox, dtype=np.uint8, epsg=4326, nodata=255)
 

@@ -1,5 +1,5 @@
 
-DAYS_BUFFER = 90
+DAYS_BUFFER = 80
 
 MAX_CLOUD_COVER = 80
 
@@ -15,12 +15,11 @@ API_BASE_URL = 'https://api.smartcarte.earth'
 DATA_CDN_BASE_URL = 'https://data.smartcarte.earth'
 
 LANDCOVER_COLORS = {
-    1: [(156, 212, 255), "clouds"],
-    2: [(158, 158, 145), "bare_ground"],
-    3: [(176, 5, 31), "built"],
-    4: [(19, 92, 46), "trees"],
-    5: [(209, 135, 8), "burned"],
-    6: [(63, 204, 82), "semi_natural_vegetation"],
-    7: [(217, 195, 0), "agriculture"],
-    8: [(6, 124, 214), "water"]
+    1: [(6, 124, 214), "water"],
+    2: [(176, 5, 31), "bare_artificial"],
+    3: [(158, 158, 145), "bare_natural"],
+    4: [(205, 221, 247), "snow_ice"],
+    5: [(19, 92, 46), "woody"],
+    6: [(217, 195, 10), "cultivated"],
+    7: [(63, 204, 82), "semi_natural_vegetation"],
 }

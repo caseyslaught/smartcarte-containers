@@ -1,7 +1,7 @@
 import gdal2tiles
 import numpy as np
 import os
-from osgeo import gdal, gdalconst, osr
+from osgeo import gdal, osr
 import rasterio
 import rasterio.merge
 from rasterio.windows import Window

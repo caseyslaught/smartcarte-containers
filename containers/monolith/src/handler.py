@@ -19,11 +19,11 @@ from common.utilities.visualization import plot_tif
 
 
 CLOUD_DETECTION_MODEL_PATH = "./common/models/cloud_detection_model_resnet18_dice_20230327.pth"
-LANDCOVER_CLASSIFICATION_MODEL_PATH = "./common/models/landcover_classification_model_resnet18_dice_20230328.pth"
+LANDCOVER_CLASSIFICATION_MODEL_PATH = "./common/models/landcover_classification_model_resnet18_dice_20230405.pth"
 
 MAX_TILES = 3
 MIN_TILES = 2
-TILE_ZOOM = 14
+TILE_ZOOM = 12
 
 sentry_sdk.init(
     dsn=f"https://c2321cc79562459cb4cfd3d33ac91d3d@o4504860083224576.ingest.sentry.io/{os.environ['SENTRY_MONOLITH_PROJECT_ID']}",
@@ -143,9 +143,7 @@ def handle():
 
 
         ### model predictions ###
-        
-        """
-        
+                
         landcover_path = f'{base_dir}/landcover.tif'
         apply_landcover_classification(composite_path, landcover_path, LANDCOVER_CLASSIFICATION_MODEL_PATH)
 
@@ -162,7 +160,6 @@ def handle():
 
         landcover_rgb_plot = f'{base_dir}/landcover.png'
         plot_tif(landcover_rgb_path, landcover_rgb_plot, bands=[1, 2, 3], cmap=None)
-        """
         
 
         ### upload assets to S3 ###
@@ -176,9 +173,9 @@ def handle():
         tiles_s3_dir = save_task_tiles_to_s3(tiles_dir, TASK_UID)
 
         # landcover
-        # save_task_file_to_s3(landcover_rgb_plot, TASK_UID)
-        # landcover_rgb_object_key = save_task_file_to_s3(landcover_rgb_path, TASK_UID)
-        # landcover_tiles_s3_dir = save_task_tiles_to_s3(landcover_tiles_dir, TASK_UID)
+        save_task_file_to_s3(landcover_rgb_plot, TASK_UID)
+        landcover_rgb_object_key = save_task_file_to_s3(landcover_rgb_path, TASK_UID)
+        landcover_tiles_s3_dir = save_task_tiles_to_s3(landcover_tiles_dir, TASK_UID)
 
 
         ### update task in database ###
@@ -187,23 +184,23 @@ def handle():
         imagery_tif_href = get_file_cdn_url(composite_object_key)
         imagery_tiles_href = get_tiles_cdn_url(tiles_s3_dir)
 
-        # landcover_tiles_href = get_tiles_cdn_url(landcover_tiles_s3_dir)
-        # landcover_rgb_tif_href = get_file_cdn_url(landcover_rgb_object_key)
+        landcover_tiles_href = get_tiles_cdn_url(landcover_tiles_s3_dir)
+        landcover_rgb_tif_href = get_file_cdn_url(landcover_rgb_object_key)
         
         print(rgb_tif_href)
         print(imagery_tif_href)
         print(imagery_tiles_href)
-        # print(landcover_tiles_href)
-        # print(landcover_rgb_tif_href)
+        print(landcover_tiles_href)
+        print(landcover_rgb_tif_href)
 
 
         update_demo_classification_task(
             task_uid=TASK_UID,
-            statistics_json=json.dumps({}),
+            statistics_json=json.dumps(statistics),
             imagery_tif_href=imagery_tif_href,
             imagery_tiles_href=imagery_tiles_href,
-            # landcover_tif_href=landcover_rgb_tif_href,
-            # landcover_tiles_href=landcover_tiles_href,
+            landcover_tif_href=landcover_rgb_tif_href,
+            landcover_tiles_href=landcover_tiles_href,
             rgb_tif_href=rgb_tif_href,
         )
 
