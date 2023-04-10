@@ -297,7 +297,7 @@ def create_map_tiles(file_path, tiles_dir, min_zoom=2, max_zoom=14):
 
     options = {
         'kml': True,
-        'nb_processes': 4,
+        'nb_processes': 8,
         'profile': 'mercator',
         's_srs': 'EPSG:3857',
         'tile_size': 256,

@@ -19,11 +19,9 @@ from common.utilities.visualization import plot_tif
 
 
 CLOUD_DETECTION_MODEL_PATH = "./common/models/cloud_detection_model_resnet18_dice_20230327.pth"
-LANDCOVER_CLASSIFICATION_MODEL_PATH = "./common/models/landcover_classification_model_resnet18_dice_20230405.pth"
+LANDCOVER_CLASSIFICATION_MODEL_PATH = "./common/models/landcover_classification_model_resnet34_dice_20230406.pth"
 
-MAX_TILES = 3
-MIN_TILES = 2
-TILE_ZOOM = 12
+TILE_ZOOM = 14
 
 sentry_sdk.init(
     dsn=f"https://c2321cc79562459cb4cfd3d33ac91d3d@o4504860083224576.ingest.sentry.io/{os.environ['SENTRY_MONOLITH_PROJECT_ID']}",
@@ -89,32 +87,6 @@ def handle():
             update_task_status(TASK_UID, TASK_TYPE, "failed", "Task failed", "There are not enough valid images for the selected date and region. This usually occurs when there is excessive cloud cover. Please try again with a different date or region.")
             return
         
-        """        
-        # incrementally increase cloud_cover until we get a complete collection
-        cloud_cover = 10
-        while True:
-            try:
-                collection_path = f'{base_dir}/s2_collection.json'
-                collection = get_collection(
-                    date_start,
-                    date_end,
-                    bbox,
-                    collection_path,
-                    max_cloud_cover=cloud_cover,
-                    max_tile_count=MAX_TILES,
-                    min_tile_count=MIN_TILES,
-                )
-            except (EmptyCollectionException, IncompleteCoverageException, NotEnoughItemsException) as e:
-                print(e)
-                if cloud_cover >= MAX_CLOUD_COVER:
-                    update_task_status(TASK_UID, TASK_TYPE, "failed", "Task failed", "There are not enough valid images for the selected date and region. This usually occurs when there is excessive cloud cover. Please try again with a different date or region.")
-                    return
-                else:
-                    cloud_cover += 20
-            else:
-                break
-        """
-
 
         ### prepare imagery ###
 
